@@ -48,7 +48,7 @@ if (isMain) {
 }
 
 // ── MCP server factory ────────────────────────────────────────────────────────
-export function createMcpServer(dbPool = pool, tokenName = "unknown") {
+export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp = "-") {
   const server = new Server(
     { name: "pg-mcp-server", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -117,7 +117,8 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown") {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}"`);
+    const argsStr = args && Object.keys(args).length ? " params=" + JSON.stringify(args) : "";
+    console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}" ip="${clientIp}"${argsStr}`);
     try {
       switch (name) {
         case "test_connection": {
@@ -238,7 +239,8 @@ export async function handleRequest(req, res) {
         onsessioninitialized: (id) => { sessions.set(id, transport); },
       });
       transport.onclose = () => { sessions.delete(sessionId); };
-      const server = createMcpServer(pool, auth.name);
+      const clientIp = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket?.remoteAddress || "-";
+      const server = createMcpServer(pool, auth.name, clientIp);
       await server.connect(transport);
       await transport.handleRequest(req, res);
     }

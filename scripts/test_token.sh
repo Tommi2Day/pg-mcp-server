@@ -96,7 +96,7 @@ extract_text() {
   python3 - "$1" <<'PYEOF'
 import sys, json
 
-raw = sys.stdin.read()
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
 
 # collect candidate JSON lines (plain or SSE)
 candidates = []
@@ -128,7 +128,7 @@ for chunk in candidates:
 PYEOF
 }
 
-EXTRACTED=$(echo "$BODY" | extract_text); EXTRACT_STATUS=$?
+EXTRACTED=$(extract_text "$BODY"); EXTRACT_STATUS=$?
 
 if [ $EXTRACT_STATUS -eq 2 ] || echo "$EXTRACTED" | grep -q '^__ERROR__:'; then
   ERR=$(echo "$EXTRACTED" | sed 's/^__ERROR__://')

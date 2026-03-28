@@ -381,7 +381,7 @@ curl -X PATCH http://localhost:3000/admin/tokens/<id> \
 Every authenticated request is logged to stderr with a timestamp, the token name, and the action:
 
 ```
-[2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables"
+[2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables" ip="192.168.1.10" params={"schema":"public"}
 [2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
 ```
 
