@@ -1,60 +1,61 @@
 # PostgreSQL MCP Server
 
-Verbindet Claude mit PostgreSQL über das Model Context Protocol (MCP).
+Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 
-![CI](https://github.com/tommi2day/pg-mcp-server/actions/workflows/main.yml/badge.svg)
+![CI](https://github.com/tommi2day/pg-mcp-server/actions/workflows/ci.yml/badge.svg)
 [![codecov](https://codecov.io/gh/Tommi2Day/pg-mcp-server/graph/badge.svg?token=CYLM3NQPZK)](https://codecov.io/gh/Tommi2Day/pg-mcp-server)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tommi2day/pg-mcp-server)
-## Übersicht
 
-| Modus | Transport | Wann? |
-|-------|-----------|-------|
-| Lokal (Node.js) | stdio | Entwicklung, kein Docker |
-| Docker / Remote | HTTP oder HTTPS | Anderer Host im Netz |
-| Kubernetes | HTTP oder HTTPS | Produktion, Helm Chart |
+## Overview
+
+| Mode | Transport | When to use |
+|------|-----------|-------------|
+| Local (Node.js) | stdio | Development, no Docker |
+| Docker / Remote | HTTP or HTTPS | Different host on the network |
+| Kubernetes | HTTP or HTTPS | Production, Helm chart |
 
 ---
 
-## Umgebungsvariablen
+## Environment Variables
 
-| Variable | Default | Beschreibung |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `TRANSPORT` | `stdio` | `stdio` oder `http` |
-| `PORT` | `3000` | HTTP(S) Port |
-| `AUTH_TOKEN` | – | Admin-Token für `/mcp` und `/admin/tokens` (leer = Auth deaktiviert) |
+| `TRANSPORT` | `stdio` | `stdio` or `http` |
+| `PORT` | `3000` | HTTP(S) port |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
-| `TLS_CERT_FILE` | `/certs/tls.crt` | Server-Zertifikat (PEM) |
-| `TLS_KEY_FILE` | `/certs/tls.key` | Server-Schlüssel (PEM) |
-| `TLS_CA_FILE` | – | Client-CA für mTLS (optional) |
-| `TLS_SAN` | – | Zusätzliche SANs für self-signed cert, z.B. `DNS:myhost,IP:1.2.3.4` |
-| `PG_HOST` | `localhost` | PostgreSQL Host |
-| `PG_PORT` | `5432` | PostgreSQL Port |
-| `PG_DATABASE` | `postgres` | Datenbankname |
-| `PG_USER` | `postgres` | Benutzername |
-| `PG_PASSWORD` | – | Passwort |
+| `TLS_CERT_FILE` | `/certs/tls.crt` | Server certificate (PEM) |
+| `TLS_KEY_FILE` | `/certs/tls.key` | Server key (PEM) |
+| `TLS_CA_FILE` | – | Client CA for mTLS (optional) |
+| `TLS_SAN` | – | Additional SANs for self-signed cert, e.g. `DNS:myhost,IP:1.2.3.4` |
+| `PG_HOST` | `localhost` | PostgreSQL host |
+| `PG_PORT` | `5432` | PostgreSQL port |
+| `PG_DATABASE` | `postgres` | Database name |
+| `PG_USER` | `postgres` | Username |
+| `PG_PASSWORD` | – | Password |
 | `PG_SSL` | `false` | `false` / `true` / `verify` |
-| `PG_SSL_CA_FILE` | – | CA für PostgreSQL-Zertifikat (bei `PG_SSL=verify`) |
-| `PG_SSL_CERT_FILE` | – | Client-Zertifikat für PostgreSQL mTLS |
-| `PG_SSL_KEY_FILE` | – | Client-Schlüssel für PostgreSQL mTLS |
+| `PG_SSL_CA_FILE` | – | CA for PostgreSQL certificate (when `PG_SSL=verify`) |
+| `PG_SSL_CERT_FILE` | – | Client certificate for PostgreSQL mTLS |
+| `PG_SSL_KEY_FILE` | – | Client key for PostgreSQL mTLS |
 
 ---
 
 ## Docker Hub
 
-Das Image ist auf Docker Hub verfügbar:
+The image is available on Docker Hub:
 
 ```bash
 docker pull tommi2day/pg-mcp-server:latest
 ```
 
-| Tag | Beschreibung |
+| Tag | Description |
 |-----|-------------|
-| `latest` | Letzter Stand von `main` |
-| `1.2.3` | Spezifische Version |
-| `1.2` | Neueste Patch-Version von 1.2 |
-| `sha-abc1234` | Spezifischer Commit |
+| `latest` | Latest build from `main` |
+| `1.2.3` | Specific version |
+| `1.2` | Latest patch of 1.2 |
+| `sha-abc1234` | Specific commit |
 
-### Direktstart vom Hub
+### Quick start from Hub
 
 ```bash
 docker run -d --name pg-mcp-server \
@@ -63,26 +64,26 @@ docker run -d --name pg-mcp-server \
   -e TRANSPORT=http \
   -e AUTH_TOKEN=$(openssl rand -hex 32) \
   -e PG_HOST=host.docker.internal \
-  -e PG_DATABASE=meine_db \
+  -e PG_DATABASE=mydb \
   -e PG_USER=user \
-  -e PG_PASSWORD=passwort \
+  -e PG_PASSWORD=password \
   tommi2day/pg-mcp-server:latest
 ```
 
 ### In docker-compose.yml
 
-Statt `build: .` das Hub-Image verwenden:
+Use the Hub image instead of building locally:
 
 ```yaml
 services:
   pg-mcp-server:
     image: tommi2day/pg-mcp-server:latest
-    # build: .   ← entfernen oder auskommentieren
+    # build: .   ← remove or comment out
 ```
 
 ---
 
-## 1 · Lokal (stdio)
+## 1 · Local (stdio)
 
 ```bash
 npm install
@@ -95,12 +96,12 @@ node index.js
   "mcpServers": {
     "postgresql": {
       "command": "node",
-      "args": ["/pfad/zu/index.js"],
+      "args": ["/path/to/index.js"],
       "env": {
         "PG_HOST": "localhost",
-        "PG_DATABASE": "meine_db",
+        "PG_DATABASE": "mydb",
         "PG_USER": "user",
-        "PG_PASSWORD": "passwort"
+        "PG_PASSWORD": "password"
       }
     }
   }
@@ -111,51 +112,51 @@ node index.js
 
 ## 2 · Docker
 
-### Schnellstart
+### Quick start
 
 ```bash
-# Image bauen
+# Build image
 docker build -t pg-mcp-server .
 
-# Starten (gegen lokalen PostgreSQL)
+# Run against a local PostgreSQL
 docker run -d --name pg-mcp-server \
   -p 3000:3000 \
   --add-host=host.docker.internal:host-gateway \
   -e TRANSPORT=http \
   -e AUTH_TOKEN=$(openssl rand -hex 32) \
   -e PG_HOST=host.docker.internal \
-  -e PG_DATABASE=meine_db \
+  -e PG_DATABASE=mydb \
   -e PG_USER=user \
-  -e PG_PASSWORD=passwort \
+  -e PG_PASSWORD=password \
   pg-mcp-server
 ```
 
-### Mit docker-compose (inkl. Test-Datenbank)
+### With docker-compose (including test database)
 
-`docker-compose.yml` anpassen und starten:
+Edit `docker-compose.yml` and start:
 
 ```bash
 docker compose up -d
 docker compose logs -f pg-mcp-server
 ```
 
-Die `docker-compose.yml` enthält einen `postgres-test` Container (Port `5433`) der automatisch bereit sein muss bevor `pg-mcp-server` startet (`depends_on: condition: service_healthy`).
+The `docker-compose.yml` includes a `postgres-test` container (port `5433`) that must be healthy before `pg-mcp-server` starts (`depends_on: condition: service_healthy`).
 
-### TLS aktivieren (optional)
+### Enable TLS (optional)
 
 ```yaml
 environment:
   TLS_ENABLED: "true"
-  TLS_SAN: "DNS:mein-host.local,IP:192.168.1.10"
+  TLS_SAN: "DNS:my-host.local,IP:192.168.1.10"
 volumes:
-  - ./certs:/certs   # echte Certs mounten; leer lassen → self-signed wird generiert
+  - ./certs:/certs   # mount real certs; leave empty → self-signed is generated
 ```
 
-Beim Start:
-- `/certs` mit Zertifikat → wird verwendet (Rechte werden automatisch angepasst)
-- `/certs` leer → self-signed Zertifikat wird automatisch generiert
+On startup:
+- `/certs` contains a certificate → it is used (permissions are adjusted automatically)
+- `/certs` is empty → a self-signed certificate is generated automatically
 
-### Claude Desktop / `.mcp.json` verbinden
+### Connect Claude Desktop / `.mcp.json`
 
 ```json
 {
@@ -171,43 +172,43 @@ Beim Start:
 }
 ```
 
-Für HTTPS `http://` durch `https://` ersetzen.
+Replace `http://` with `https://` for HTTPS.
 
 ---
 
-## 3 · Kubernetes mit Helm
+## 3 · Kubernetes with Helm
 
-### Voraussetzungen
+### Prerequisites
 
-- `kubectl` konfiguriert
-- `helm` v3 installiert
-- Image in einer Registry erreichbar
+- `kubectl` configured
+- `helm` v3 installed
+- Image accessible in a registry
 
-### Schnellstart (HTTP, kein TLS)
+### Quick start (HTTP, no TLS)
 
 ```bash
 helm install pg-mcp ./helm/pg-mcp-server \
   --namespace mcp --create-namespace \
   --set image.repository=tommi2day/pg-mcp-server \
-  --set postgresql.host=mein-db-host \
-  --set postgresql.database=meine_db \
+  --set postgresql.host=my-db-host \
+  --set postgresql.database=mydb \
   --set postgresql.user=user \
-  --set postgresql.password=geheim \
+  --set postgresql.password=secret \
   --set auth.token=$(openssl rand -hex 32)
 ```
 
-### Mit HTTPS
+### With HTTPS
 
 ```bash
-# TLS Secret erstellen
+# Create TLS secret
 kubectl create secret tls pg-mcp-tls \
   --cert=certs/tls.crt --key=certs/tls.key -n mcp
 
-# Auth-Secret erstellen
+# Create auth secret
 kubectl create secret generic my-auth-secret \
   --from-literal=token=$(openssl rand -hex 32) -n mcp
 
-# PostgreSQL CA (nur bei PG_SSL=verify)
+# PostgreSQL CA (only for PG_SSL=verify)
 kubectl create secret generic pg-ca-cert \
   --from-file=ca.crt=certs/pg-ca.crt -n mcp
 
@@ -219,13 +220,13 @@ helm install pg-mcp ./helm/pg-mcp-server \
   --set postgresql.ssl=verify \
   --set tls.pgCaSecret=pg-ca-cert \
   --set image.repository=tommi2day/pg-mcp-server \
-  --set postgresql.host=mein-db-host \
-  --set postgresql.database=meine_db \
+  --set postgresql.host=my-db-host \
+  --set postgresql.database=mydb \
   --set postgresql.user=user \
   --set postgresql.existingSecret=pg-credentials
 ```
 
-### Produktions-values.yaml
+### Production values.yaml
 
 ```yaml
 image:
@@ -276,7 +277,7 @@ autoscaling:
   maxReplicas: 10
 ```
 
-### Upgrade / Deinstallation
+### Upgrade / Uninstall
 
 ```bash
 helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
@@ -285,61 +286,61 @@ helm uninstall pg-mcp -n mcp
 
 ---
 
-## Authentifizierung
+## Authentication
 
-`AUTH_TOKEN` (Env-Var) ist das **Admin-Token** — es hat Zugriff auf `/mcp` und die Token-Verwaltungs-API.
-Zusätzlich können beliebig viele **DB-Token** über die API angelegt werden, die nur `/mcp` nutzen dürfen.
-Token-Werte werden als SHA-256-Hash gespeichert (Klartext nie in der Datenbank).
+`AUTH_TOKEN` (env var) is the **admin token** — it grants access to `/mcp` and the token management API.
+Additional **DB tokens** can be created via the API; they only have access to `/mcp`.
+Token values are stored as SHA-256 hashes (plaintext is never stored in the database).
 
-Kein `AUTH_TOKEN` gesetzt → Auth komplett deaktiviert (nur lokal/dev).
+No `AUTH_TOKEN` set → auth is completely disabled (local/dev only).
 
-### Token verwalten mit `token.sh`
+### Manage tokens with `token.sh`
 
 ```bash
 export AUTH_TOKEN=<admin-token>
 export MCP_URL=http://localhost:3000   # optional, default
 
-./token.sh list                        # alle Token anzeigen
-./token.sh add "claude-desktop"        # neues Token erstellen (Klartext einmalig ausgegeben)
-./token.sh delete <id>                 # Token deaktivieren
-./token.sh disable <id>                # temporär sperren
-./token.sh enable  <id>                # reaktivieren
-./token.sh rename  <id> <neuer-name>   # umbenennen
+./scripts/token.sh list                     # list all tokens
+./scripts/token.sh add "claude-desktop"     # create new token (plaintext shown once)
+./scripts/token.sh delete <id>              # deactivate token
+./scripts/token.sh disable <id>             # temporarily block
+./scripts/token.sh enable  <id>             # re-enable
+./scripts/token.sh rename  <id> <new-name>  # rename
 ```
 
-### Token verwalten mit curl
+### Manage tokens with curl
 
 ```bash
-# Token anlegen
+# Create token
 curl -X POST http://localhost:3000/admin/tokens \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "claude-desktop"}'
 
-# Token auflisten
+# List tokens
 curl http://localhost:3000/admin/tokens \
   -H "Authorization: Bearer $AUTH_TOKEN"
 
-# Token deaktivieren
+# Deactivate token
 curl -X DELETE http://localhost:3000/admin/tokens/<id> \
   -H "Authorization: Bearer $AUTH_TOKEN"
 
-# Token umbenennen / reaktivieren
+# Rename / re-enable token
 curl -X PATCH http://localhost:3000/admin/tokens/<id> \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "neuer-name", "active": true}'
+  -d '{"name": "new-name", "active": true}'
 ```
 
-### Datenbankschema
+### Database schema
 
-Die Tabelle wird beim Start automatisch angelegt:
+The table is created automatically on startup:
 
 ```sql
 CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
   id           SERIAL PRIMARY KEY,
   name         TEXT        NOT NULL,
-  token_hash   TEXT        NOT NULL UNIQUE,  -- SHA-256, Klartext nie gespeichert
+  token_hash   TEXT        NOT NULL UNIQUE,  -- SHA-256, plaintext never stored
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_used_at TIMESTAMPTZ,
   active       BOOLEAN     NOT NULL DEFAULT true
@@ -348,45 +349,63 @@ CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
 
 ---
 
-## Entwicklung
+## Development
 
 ```bash
-# Dependencies installieren
+# Install dependencies
 npm install
 
-# Tests ausführen
-./test.sh                        # alle Tests
-./test.sh tests/lib.test.js      # einzelne Datei
+# Run tests
+./scripts/test.sh                        # all tests
+./scripts/test.sh tests/lib.test.js      # single file
+
+# Coverage report
+./scripts/coverage.sh                    # report written to ./coverage/
+./scripts/coverage.sh --open             # open HTML report in browser
 
 # Linting
-./lint.sh                        # alle Dateien prüfen
-./lint.sh --fix                  # Fehler automatisch beheben
+./scripts/lint.sh                        # check all files
+./scripts/lint.sh --fix                  # auto-fix issues
 ```
 
-Beide Scripts benötigen nur Docker — kein lokales Node.js erforderlich.
+All scripts require only Docker — no local Node.js needed.
 
 ---
 
-## Verfügbare MCP-Tools
+## Available MCP Tools
 
-| Tool | Beschreibung |
+| Tool | Description |
 |------|-------------|
-| `test_connection` | Verbindung + TLS-Status prüfen |
-| `list_schemas` | Alle Schemas anzeigen |
-| `list_tables` | Tabellen eines Schemas |
-| `describe_table` | Spalten, Typen, Constraints |
-| `query` | SELECT ausführen (max. 200 Zeilen) |
-| `execute` | INSERT / UPDATE / DELETE / DDL |
+| `test_connection` | Check connection and TLS status |
+| `list_schemas` | List all schemas |
+| `list_tables` | List tables in a schema |
+| `describe_table` | Show columns, types and constraints |
+| `query` | Execute SELECT (max 200 rows) |
+| `execute` | Execute INSERT / UPDATE / DELETE / DDL |
 
 ---
 
 ## Endpoints
 
-| Path | Auth | Beschreibung |
+| Path | Auth | Description |
 |------|------|-------------|
-| `POST /mcp` | Admin- oder DB-Token | MCP Streamable-HTTP |
-| `GET /health` | keine | Health-Check (`{"status":"ok","tls":<bool>}`) |
-| `GET /admin/tokens` | nur Admin-Token | Token auflisten |
-| `POST /admin/tokens` | nur Admin-Token | Token erstellen |
-| `PATCH /admin/tokens/:id` | nur Admin-Token | Token umbenennen / de-/aktivieren |
-| `DELETE /admin/tokens/:id` | nur Admin-Token | Token deaktivieren |
+| `POST /mcp` | Admin or DB token | MCP Streamable-HTTP |
+| `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
+| `GET /admin/tokens` | Admin token only | List tokens |
+| `POST /admin/tokens` | Admin token only | Create token |
+| `PATCH /admin/tokens/:id` | Admin token only | Rename / enable / disable token |
+| `DELETE /admin/tokens/:id` | Admin token only | Deactivate token |
+
+---
+
+## Release
+
+A new release is triggered by pushing a version tag:
+
+```bash
+git tag 1.2.3
+git push origin 1.2.3
+```
+
+Or via the **Actions → Release → Run workflow** UI with a version number (e.g. `1.2.3`).
+This builds and pushes the Docker image, creates the git tag, and publishes a GitHub Release.
