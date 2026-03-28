@@ -239,7 +239,9 @@ export async function handleRequest(req, res) {
         onsessioninitialized: (id) => { sessions.set(id, transport); },
       });
       transport.onclose = () => { sessions.delete(sessionId); };
-      const clientIp = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket?.remoteAddress || "-";
+      const clientIp = req.headers["x-real-ip"]
+        || req.headers["x-forwarded-for"]?.split(",")[0].trim()
+        || req.socket?.remoteAddress || "-";
       const server = createMcpServer(pool, auth.name, clientIp);
       await server.connect(transport);
       await transport.handleRequest(req, res);

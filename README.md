@@ -378,15 +378,17 @@ curl -X PATCH http://localhost:3000/admin/tokens/<id> \
 
 ### Connection logging
 
-Every authenticated request is logged to stderr with a timestamp, the token name, and the action:
+Every authenticated request is logged to stderr with a timestamp, the token name, action, client IP, and tool parameters:
 
 ```
 [2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables" ip="192.168.1.10" params={"schema":"public"}
 [2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
 ```
 
-- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the DB token's name
+- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the DB token's name; `params` is omitted for tools with no arguments
 - `[ADMIN]` — admin API requests; always `token="admin"`
+
+The client IP is resolved in order: `x-real-ip` header → first entry of `x-forwarded-for` → TCP socket address. When running Docker without a reverse proxy, the socket address is the Docker bridge IP — deploy behind nginx or Traefik to log the real client IP.
 
 ### Database schema
 

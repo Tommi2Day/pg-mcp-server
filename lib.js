@@ -113,7 +113,9 @@ export async function handleAdminRequest(pool, req, res) {
   const idStr = pathname.replace(/^\/admin\/tokens\/?/, "");
   const id    = idStr ? parseInt(idStr, 10) : null;
 
-  const ip = req.socket?.remoteAddress || "-";
+  const ip = req.headers["x-real-ip"]
+    || req.headers["x-forwarded-for"]?.split(",")[0].trim()
+    || req.socket?.remoteAddress || "-";
   console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}"`);
 
   try {
