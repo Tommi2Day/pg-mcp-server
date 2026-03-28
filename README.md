@@ -112,7 +112,24 @@ node index.js
 
 ## 2 · Docker
 
-### Quick start
+### Quick start with `run.sh`
+
+`scripts/run.sh` builds and starts the container in one step:
+
+```bash
+# Optionally set PostgreSQL connection via .env in the project root
+cp .env.example .env
+# edit .env: set PG_HOST, PG_DATABASE, PG_USER, PG_PASSWORD, ...
+
+./scripts/run.sh              # start as "pg-mcp-server"
+./scripts/run.sh my-name      # start with a custom container name
+```
+
+- Stops and removes any existing container with the same name
+- Auto-generates `AUTH_TOKEN` on first run and saves it to `./auth_token`
+- Reads `.env` from the project root if present
+
+### Quick start (manual)
 
 ```bash
 # Build image
@@ -296,10 +313,26 @@ No `AUTH_TOKEN` set → auth is completely disabled (local/dev only).
 
 ### Manage tokens with `token.sh`
 
+`token.sh` reads `AUTH_TOKEN` and `MCP_URL` from environment variables or from a `scripts/.env` file:
+
 ```bash
+# Option A – environment variables
 export AUTH_TOKEN=<admin-token>
 export MCP_URL=http://localhost:3000   # optional, default
 
+# Option B – scripts/.env file
+cat > scripts/.env <<EOF
+AUTH_TOKEN=<admin-token>
+MCP_URL=http://localhost:3000
+EOF
+```
+
+> When using `run.sh`, the generated token is stored in `./auth_token`:
+> ```bash
+> export AUTH_TOKEN=$(cat auth_token)
+> ```
+
+```bash
 ./scripts/token.sh list                     # list all tokens
 ./scripts/token.sh add "claude-desktop"     # create new token (plaintext shown once)
 ./scripts/token.sh delete <id>              # deactivate token
@@ -400,12 +433,33 @@ All scripts require only Docker — no local Node.js needed.
 
 ## Release
 
-A new release is triggered by pushing a version tag:
+The release workflow (`.github/workflows/release.yml`) runs lint, tests, builds and pushes the Docker image, and creates a GitHub Release with auto-generated notes.
+
+### Option 1 — Push a git tag
 
 ```bash
 git tag 1.2.3
 git push origin 1.2.3
 ```
 
-Or via the **Actions → Release → Run workflow** UI with a version number (e.g. `1.2.3`).
-This builds and pushes the Docker image, creates the git tag, and publishes a GitHub Release.
+The tag must match `[0-9]+.[0-9]+.[0-9]+` (e.g. `1.2.3`, no `v` prefix).
+
+### Option 2 — Manual dispatch (no local git required)
+
+Go to **Actions → Release → Run workflow**, enter a version number (e.g. `1.2.3`), and click **Run workflow**.
+
+The workflow will:
+1. Run lint and tests
+2. Build and push the Docker image (`tommi2day/pg-mcp-server:1.2.3`, `:1.2`, `:1`, `:latest`, `:sha-<short>`)
+3. **Create and push the git tag** automatically
+4. Publish a GitHub Release with auto-generated notes
+
+### Docker image tags per release
+
+| Tag | Example |
+|-----|---------|
+| Full version | `1.2.3` |
+| Major.minor | `1.2` |
+| Major | `1` |
+| Latest | `latest` |
+| Commit SHA | `sha-abc1234` |
