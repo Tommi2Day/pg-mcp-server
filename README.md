@@ -341,6 +341,17 @@ EOF
 ./scripts/token.sh rename  <id> <new-name>  # rename
 ```
 
+### Validate a token with `test_token.sh`
+
+Connects to the server using the given token and lists tables — useful to confirm a newly created token works:
+
+```bash
+./scripts/test_token.sh <token>              # schema: public (default)
+./scripts/test_token.sh <token> myschema     # specific schema
+```
+
+Reads `MCP_URL` from environment or `scripts/.env`. Exits with a clear error message on failure (invalid token, server unreachable, MCP tool error, etc.).
+
 ### Manage tokens with curl
 
 ```bash
@@ -364,6 +375,18 @@ curl -X PATCH http://localhost:3000/admin/tokens/<id> \
   -H "Content-Type: application/json" \
   -d '{"name": "new-name", "active": true}'
 ```
+
+### Connection logging
+
+Every authenticated request is logged to stderr with a timestamp, the token name, and the action:
+
+```
+[2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables"
+[2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
+```
+
+- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the DB token's name
+- `[ADMIN]` — admin API requests; always `token="admin"`
 
 ### Database schema
 
