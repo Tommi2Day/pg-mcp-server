@@ -2,7 +2,6 @@ name: Docker Publish
 
 on:
   push:
-    branches: [main, master]
     tags: ["v*"]
   release:
     types: [published]
@@ -52,14 +51,11 @@ jobs:
         with:
           images: tommi2day/pg-mcp-server
           tags: |
-            # main/master push → :latest
-            type=raw,value=latest,enable={{is_default_branch}}
-            # v1.2.3 tag oder Release → :1.2.3  :1.2  :1
+            # v1.2.3 tag oder Release → :1.2.3  :1.2  :1  :latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # GitHub Release → Tag-Name des Release
-            type=ref,event=tag
+            type=raw,value=latest
             # immer: :sha-<short>
             type=sha,format=short
 
