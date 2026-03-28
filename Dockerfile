@@ -1,16 +1,11 @@
-FROM node:22-alpine
+FROM node:24-alpine
 
-RUN apk add --no-cache openssl su-exec
+RUN apk add --no-cache openssl su-exec curl
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev
-
-COPY index.js ./
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
-
+COPY ["package.json","package-lock.json","index.js","lib.js", "docker-entrypoint.sh", "/app/"]
+RUN npm install --omit=dev && chmod +x /app/docker-entrypoint.sh
 RUN mkdir -p /certs && chmod 777 /certs
 
 ENV TRANSPORT=http \
