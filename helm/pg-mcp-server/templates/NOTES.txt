@@ -1,4 +1,4 @@
-🐘 PostgreSQL MCP Server deployed!
+PostgreSQL MCP Server deployed!
 
   Release  : {{ .Release.Name }}
   Namespace: {{ .Release.Namespace }}
@@ -7,13 +7,13 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   STATUS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  HTTP TLS     : {{ if .Values.server.tlsEnabled }}🔐 HTTPS aktiv{{ else }}ℹ️  HTTP (kein TLS){{ end }}
-  PostgreSQL   : {{ if eq .Values.postgresql.ssl "verify" }}🔐 TLS + Zertifikatsprüfung{{ else if eq .Values.postgresql.ssl "true" }}🔒 TLS (kein Cert-Check){{ else }}ℹ️  unverschlüsselt{{ end }}
-  mTLS Clients : {{ if .Values.tls.clientCaSecret }}🔐 aktiv{{ else }}–{{ end }}
-  PG Client TLS: {{ if .Values.tls.pgClientCertSecret }}🔐 aktiv{{ else }}–{{ end }}
+  HTTP TLS     : {{ if .Values.server.tlsEnabled }}HTTPS enabled{{ else }}HTTP (no TLS){{ end }}
+  PostgreSQL   : {{ if eq .Values.postgresql.ssl "verify" }}TLS + certificate verification{{ else if eq .Values.postgresql.ssl "true" }}TLS (no cert check){{ else }}unencrypted{{ end }}
+  mTLS Clients : {{ if .Values.tls.clientCaSecret }}enabled{{ else }}-{{ end }}
+  PG Client TLS: {{ if .Values.tls.pgClientCertSecret }}enabled{{ else }}-{{ end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DATENBANK
+  DATABASE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Host    : {{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}
   Database: {{ .Values.postgresql.database }}
@@ -25,26 +25,27 @@
 {{- $scheme := "http" }}{{ if .Values.server.tlsEnabled }}{{ $scheme = "https" }}{{ end }}
 {{- if .Values.ingress.enabled }}
 {{- range .Values.ingress.hosts }}
-  🌐 {{ $scheme }}://{{ .host }}/mcp
+  {{ $scheme }}://{{ .host }}/mcp
 {{- end }}
 {{- else if eq .Values.service.type "LoadBalancer" }}
-  External-IP abwarten:
+  Wait for external IP:
   kubectl get svc -n {{ .Release.Namespace }} {{ include "pg-mcp-server.fullname" . }}
-  → MCP: {{ $scheme }}://<EXTERNAL-IP>:{{ .Values.service.port }}/mcp
+  MCP: {{ $scheme }}://<EXTERNAL-IP>:{{ .Values.service.port }}/mcp
 {{- else }}
-  Port-Forward zum Testen:
+  Port-forward for local testing:
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "pg-mcp-server.fullname" . }} 3000:{{ .Values.service.port }}
-  → MCP: {{ $scheme }}://localhost:3000/mcp
+  MCP: {{ $scheme }}://localhost:3000/mcp
 {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  CLAUDE DESKTOP CONFIG
+  CLAUDE DESKTOP / .mcp.json CONFIG
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     "mcpServers": {
       "postgresql": {
         "type": "http",
-        "url": "{{ $scheme }}://<YOUR-HOST>:{{ .Values.service.port }}/mcp"
+        "url": "{{ $scheme }}://<YOUR-HOST>:{{ .Values.service.port }}/mcp",
+        "headers": { "Authorization": "Bearer <AUTH_TOKEN>" }
       }
     }
   }

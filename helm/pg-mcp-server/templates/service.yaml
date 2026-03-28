@@ -8,8 +8,8 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: mcp
+      targetPort: http
       protocol: TCP
-      name: mcp
+      name: http
   selector:
     {{- include "pg-mcp-server.selectorLabels" . | nindent 4 }}

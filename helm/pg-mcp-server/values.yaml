@@ -1,6 +1,6 @@
 # ── Image ─────────────────────────────────────────────────────────────────────
 image:
-  repository: pg-mcp-server   # e.g. ghcr.io/your-org/pg-mcp-server
+  repository: tommi2day/pg-mcp-server
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -27,10 +27,10 @@ postgresql:
 
 # ── Authentication ────────────────────────────────────────────────────────────
 auth:
-  # Bearer-Token für /mcp Endpoint. Leer → Auth deaktiviert (nur intern/dev!)
-  # Erzeugen: openssl rand -hex 32
+  # Bearer token for /mcp endpoint. Empty → auth disabled (local/dev only!)
+  # Generate: openssl rand -hex 32
   token: ""
-  # existingSecret: "my-auth-secret"   # Secret-Key muss "token" heißen
+  # existingSecret: "my-auth-secret"   # Secret key must be "token"
   # existingSecretKey: "token"
 
 # ── MCP Server ────────────────────────────────────────────────────────────────
@@ -50,6 +50,10 @@ tls:
   # Option B: inline base64-encoded PEM (testing only)
   cert: ""
   key: ""
+
+  # Additional SANs for the auto-generated self-signed cert (when /certs is empty).
+  # Example: "DNS:my-host.local,IP:192.168.1.10"
+  san: ""
 
   # CA to verify PostgreSQL server cert (required when postgresql.ssl=verify)
   # Secret must contain "ca.crt"
@@ -104,7 +108,7 @@ autoscaling:
 livenessProbe:
   httpGet:
     path: /health
-    port: mcp
+    port: http
     # scheme: HTTPS   # uncomment when server.tlsEnabled=true
   initialDelaySeconds: 15
   periodSeconds: 15
@@ -112,7 +116,7 @@ livenessProbe:
 readinessProbe:
   httpGet:
     path: /health
-    port: mcp
+    port: http
     # scheme: HTTPS   # uncomment when server.tlsEnabled=true
   initialDelaySeconds: 5
   periodSeconds: 10

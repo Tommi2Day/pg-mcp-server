@@ -40,7 +40,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - name: mcp
+            - name: http
               containerPort: {{ .Values.server.port }}
               protocol: TCP
           env:
@@ -60,6 +60,10 @@ spec:
             {{- if .Values.tls.clientCaSecret }}
             - name: TLS_CA_FILE
               value: /certs-client-ca/ca.crt
+            {{- end }}
+            {{- if .Values.tls.san }}
+            - name: TLS_SAN
+              value: {{ .Values.tls.san | quote }}
             {{- end }}
             {{- end }}
 

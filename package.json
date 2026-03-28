@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "version": "node --input-type=commonjs -e \"const fs=require('fs');const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=process.env.npm_new_version;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');\" && git add openapi.json"
+    "version": "node --input-type=commonjs -e \"const fs=require('fs');const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=process.env.npm_new_version;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');\" && sed -i \"s/^version: .*/version: $npm_new_version/\" helm/pg-mcp-server/Chart.yaml && sed -i \"s/^appVersion: .*/appVersion: \\\"$npm_new_version\\\"/\" helm/pg-mcp-server/Chart.yaml && git add openapi.json helm/pg-mcp-server/Chart.yaml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
