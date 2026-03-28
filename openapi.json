@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PostgreSQL MCP Server",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "description": "REST API for the PostgreSQL MCP Server. Exposes a health endpoint, MCP Streamable-HTTP transport, and an admin API for token management."
   },
   "servers": [
