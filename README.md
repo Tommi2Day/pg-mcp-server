@@ -454,6 +454,8 @@ All scripts require only Docker — no local Node.js needed.
 | `PATCH /admin/tokens/:id` | Admin token only | Rename / enable / disable token |
 | `DELETE /admin/tokens/:id` | Admin token only | Deactivate token |
 
+A full OpenAPI 3.1 specification is available in [`openapi.json`](openapi.json).
+
 ---
 
 ## Release
@@ -462,22 +464,25 @@ The release workflow (`.github/workflows/release.yml`) runs lint, tests, builds 
 
 ### Option 1 — Push a git tag
 
+Use `npm version` to bump `package.json` and `openapi.json` together, then push the tag:
+
 ```bash
-git tag 1.2.3
-git push origin 1.2.3
+npm version 1.2.3   # bumps package.json + openapi.json, commits, creates git tag
+git push origin main 1.2.3
 ```
 
-The tag must match `[0-9]+.[0-9]+.[0-9]+` (e.g. `1.2.3`, no `v` prefix).
+The `version` lifecycle script keeps `openapi.json` in sync automatically. The tag must match `[0-9]+.[0-9]+.[0-9]+` (e.g. `1.2.3`, no `v` prefix).
 
 ### Option 2 — Manual dispatch (no local git required)
 
 Go to **Actions → Release → Run workflow**, enter a version number (e.g. `1.2.3`), and click **Run workflow**.
 
 The workflow will:
-1. Run lint and tests
-2. Build and push the Docker image (`tommi2day/pg-mcp-server:1.2.3`, `:1.2`, `:1`, `:latest`, `:sha-<short>`)
-3. **Create and push the git tag** automatically
-4. Publish a GitHub Release with auto-generated notes
+1. **Bump** `package.json` and `openapi.json` to the entered version, commit and push to `main`
+2. Run lint and tests
+3. Build and push the Docker image (`tommi2day/pg-mcp-server:1.2.3`, `:1.2`, `:1`, `:latest`, `:sha-<short>`)
+4. **Create and push the git tag** automatically
+5. Publish a GitHub Release with auto-generated notes
 
 ### Docker image tags per release
 

@@ -24,12 +24,14 @@ import https from "node:https";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
   checkAuth, handleAdminRequest,
 } from "./lib.js";
 
 const { Pool } = pg;
+const { version } = createRequire(import.meta.url)("./package.json");
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
@@ -50,7 +52,7 @@ if (isMain) {
 // ── MCP server factory ────────────────────────────────────────────────────────
 export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp = "-") {
   const server = new Server(
-    { name: "pg-mcp-server", version: "1.0.0" },
+    { name: "pg-mcp-server", version },
     { capabilities: { tools: {} } }
   );
 
