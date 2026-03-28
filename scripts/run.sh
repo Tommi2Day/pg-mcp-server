@@ -1,4 +1,11 @@
 #!/bin/bash
+# Pulls and starts the pg-mcp-server Docker container.
+# Auto-generates AUTH_TOKEN on first run (saved to ./auth_token).
+# Reads .env from the project root if present.
+#
+# Usage:
+#   ./run.sh              # start as "pg-mcp-server"
+#   ./run.sh my-name      # start with a custom container name
 NAME=${1:-pg-mcp-server}
 if [ -r .env ]; then
   . .env

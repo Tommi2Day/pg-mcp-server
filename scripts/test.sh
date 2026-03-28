@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Führt Unit-Tests via Docker aus (kein lokales Node.js erforderlich)
+# Runs unit tests via Docker (no local Node.js required)
 #
 # Usage:
-#   ./test.sh                        # alle Tests
-#   ./test.sh tests/lib.test.js      # einzelne Datei
-#   ./test.sh --reporter=verbose     # vitest-Optionen
+#   ./test.sh                        # all tests
+#   ./test.sh tests/lib.test.js      # single file
+#   ./test.sh --reporter=verbose     # vitest options
 set -eo pipefail
 
-# pwd -W gibt Windows-Pfade (C:/...) in Git Bash zurück – nötig für Docker-Volume-Mounts
+# pwd -W returns Windows paths (C:/...) in Git Bash – required for Docker volume mounts
 DIR="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
 
 docker run --rm \

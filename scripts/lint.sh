@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Führt ESLint via Docker aus (kein lokales Node.js erforderlich)
+# Runs ESLint via Docker (no local Node.js required)
 #
 # Usage:
-#   ./lint.sh              # alle Dateien
-#   ./lint.sh --fix        # Fehler automatisch beheben
-#   ./lint.sh lib.js       # einzelne Datei
+#   ./lint.sh              # all files
+#   ./lint.sh --fix        # auto-fix issues
+#   ./lint.sh lib.js       # single file
 set -eo pipefail
 
-# pwd -W gibt Windows-Pfade (C:/...) in Git Bash zurück – nötig für Docker-Volume-Mounts
+# pwd -W returns Windows paths (C:/...) in Git Bash – required for Docker volume mounts
 DIR="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
 
 docker run --rm \

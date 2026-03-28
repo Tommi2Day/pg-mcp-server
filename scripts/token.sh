@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Token-Verwaltung für pg-mcp-server
+# Token management for pg-mcp-server
 #
-# Voraussetzungen:
-#   AUTH_TOKEN  – Admin-Token (Env-Var oder .env Datei)
-#   MCP_URL     – Server-URL          (default: http://localhost:3000)
+# Prerequisites:
+#   AUTH_TOKEN  – Admin token (env var or .env file)
+#   MCP_URL     – Server URL (default: http://localhost:3000)
 #
 # Usage:
 #   ./token.sh list
@@ -11,11 +11,11 @@
 #   ./token.sh delete <id>
 #   ./token.sh enable  <id>
 #   ./token.sh disable <id>
-#   ./token.sh rename  <id> <neuer-name>
+#   ./token.sh rename  <id> <new-name>
 set -eo pipefail
 
-# ── Konfiguration ─────────────────────────────────────────────────────────────
-# .env laden falls vorhanden
+# ── Configuration ─────────────────────────────────────────────────────────────
+# Load .env if present
 if [ -f "$(dirname "$0")/.env" ]; then
   # shellcheck disable=SC1091
   set -a; . "$(dirname "$0")/.env"; set +a
@@ -25,15 +25,15 @@ ADMIN_TOKEN="${AUTH_TOKEN:-}"
 BASE_URL="${MCP_URL:-http://localhost:3000}"
 API="${BASE_URL}/admin/tokens"
 
-# ── Hilfsfunktionen ───────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 die()  { echo "❌ $*" >&2; exit 1; }
 info() { echo "ℹ️  $*"; }
 
 require_token() {
-  [ -n "$ADMIN_TOKEN" ] || die "AUTH_TOKEN nicht gesetzt.\nExport: export AUTH_TOKEN=<dein-admin-token>\nOder trage ihn in .env ein."
+  [ -n "$ADMIN_TOKEN" ] || die "AUTH_TOKEN not set.\nExport: export AUTH_TOKEN=<admin-token>\nOr add it to scripts/.env."
 }
 
-# curl mit Auth-Header; gibt HTTP-Body + Status-Code aus
+# curl with auth header; returns HTTP body + status code
 api() {
   local method="$1"; shift
   local url="$1";    shift
@@ -44,7 +44,7 @@ api() {
     "$@" "$url"
 }
 
-# Trennt Body und Status-Code (letzte Zeile)
+# Separates body and status code (last line)
 check_response() {
   local raw="$1"
   local status
@@ -60,9 +60,8 @@ check_response() {
   echo "$body"
 }
 
-# Minimales JSON-Pretty-Print ohne externe Tools
+# Minimal JSON pretty-print without external tools
 pretty() {
-  # Versuche python3, dann python, dann raw
   if command -v python3 >/dev/null 2>&1; then
     echo "$1" | python3 -m json.tool 2>/dev/null || echo "$1"
   elif command -v python >/dev/null 2>&1; then
@@ -79,12 +78,10 @@ cmd_list() {
   raw=$(api GET "$API")
   body=$(check_response "$raw")
 
-  # Tabellenformat ohne externe Tools
   echo ""
-  printf "%-5s %-30s %-8s %-24s %-24s\n" "ID" "NAME" "AKTIV" "ERSTELLT" "ZULETZT GENUTZT"
+  printf "%-5s %-30s %-8s %-24s %-24s\n" "ID" "NAME" "ACTIVE" "CREATED" "LAST USED"
   printf "%-5s %-30s %-8s %-24s %-24s\n" "-----" "------------------------------" "--------" "------------------------" "------------------------"
 
-  # Zeilen aus JSON extrahieren (grundlegendes Parsing reicht hier)
   echo "$body" | grep -o '"id":[0-9]*\|"name":"[^"]*"\|"active":[^,}]*\|"created_at":"[^"]*"\|"last_used_at":[^,}]*' | \
   awk '
     /^"id":/ { id=substr($0,6) }
@@ -116,13 +113,13 @@ cmd_add() {
   id=$(echo "$body" | grep -o '"id":[0-9]*' | cut -d':' -f2)
 
   echo ""
-  echo "✅ Token erstellt (ID: ${id}, Name: ${name})"
+  echo "✅ Token created (ID: ${id}, Name: ${name})"
   echo ""
-  echo "   TOKEN (nur einmalig sichtbar – jetzt kopieren!):"
+  echo "   TOKEN (shown once – copy it now!):"
   echo ""
   echo "   ${token}"
   echo ""
-  echo "   .mcp.json Eintrag:"
+  echo "   .mcp.json entry:"
   echo "   \"headers\": { \"Authorization\": \"Bearer ${token}\" }"
   echo ""
 }
@@ -135,7 +132,7 @@ cmd_delete() {
   local raw body
   raw=$(api DELETE "${API}/${id}")
   body=$(check_response "$raw")
-  echo "✅ Token ${id} deaktiviert."
+  echo "✅ Token ${id} deactivated."
 }
 
 cmd_enable() {
@@ -146,7 +143,7 @@ cmd_enable() {
   local raw body
   raw=$(api PATCH "${API}/${id}" -d '{"active":true}')
   body=$(check_response "$raw")
-  echo "✅ Token ${id} aktiviert."
+  echo "✅ Token ${id} enabled."
 }
 
 cmd_disable() {
@@ -157,39 +154,39 @@ cmd_disable() {
   local raw body
   raw=$(api PATCH "${API}/${id}" -d '{"active":false}')
   body=$(check_response "$raw")
-  echo "✅ Token ${id} deaktiviert."
+  echo "✅ Token ${id} disabled."
 }
 
 cmd_rename() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh rename <id> <neuer-name>"
-  [ -n "${2:-}" ] || die "Usage: ./token.sh rename <id> <neuer-name>"
+  [ -n "${1:-}" ] || die "Usage: ./token.sh rename <id> <new-name>"
+  [ -n "${2:-}" ] || die "Usage: ./token.sh rename <id> <new-name>"
   local id="$1" name="$2"
 
   local raw body
   raw=$(api PATCH "${API}/${id}" -d "{\"name\":\"${name}\"}")
   body=$(check_response "$raw")
-  echo "✅ Token ${id} umbenannt zu \"${name}\"."
+  echo "✅ Token ${id} renamed to \"${name}\"."
 }
 
 cmd_help() {
   cat <<EOF
 
-pg-mcp-server Token-Verwaltung
+pg-mcp-server token management
 
-  Konfiguration (Env-Vars oder .env):
-    AUTH_TOKEN   Admin-Token (Pflicht)
-    MCP_URL      Server-URL  (default: http://localhost:3000)
+  Configuration (env vars or scripts/.env):
+    AUTH_TOKEN   Admin token (required)
+    MCP_URL      Server URL  (default: http://localhost:3000)
 
-  Befehle:
-    list                    Alle Token anzeigen
-    add    <name>           Neues Token erstellen
-    delete <id>             Token dauerhaft deaktivieren
-    enable <id>             Token reaktivieren
-    disable <id>            Token temporär deaktivieren
-    rename <id> <name>      Token umbenennen
+  Commands:
+    list                    List all tokens
+    add    <name>           Create a new token
+    delete <id>             Permanently deactivate a token
+    enable <id>             Re-enable a token
+    disable <id>            Temporarily disable a token
+    rename <id> <name>      Rename a token
 
-  Beispiele:
+  Examples:
     export AUTH_TOKEN=<admin-token>
     ./token.sh list
     ./token.sh add "claude-desktop"
@@ -207,5 +204,5 @@ case "${1:-help}" in
   disable) cmd_disable "${2:-}" ;;
   rename)  cmd_rename  "${2:-}" "${3:-}" ;;
   help|--help|-h) cmd_help ;;
-  *) die "Unbekannter Befehl: ${1}\nHilfe: ./token.sh help" ;;
+  *) die "Unknown command: ${1}\nHelp: ./token.sh help" ;;
 esac

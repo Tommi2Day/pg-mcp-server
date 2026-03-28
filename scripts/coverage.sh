@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Führt Coverage-Report via Docker aus (kein lokales Node.js erforderlich)
+# Runs coverage report via Docker (no local Node.js required)
 #
 # Usage:
-#   ./coverage.sh            # Coverage-Report erstellen (Ausgabe in ./coverage/)
-#   ./coverage.sh --open     # Report erstellen und im Browser öffnen
+#   ./coverage.sh            # generate report (output in ./coverage/)
+#   ./coverage.sh --open     # generate report and open in browser
 set -eo pipefail
 
 OPEN=false
@@ -11,7 +11,7 @@ if [ "$1" = "--open" ]; then
   OPEN=true
 fi
 
-# pwd -W gibt Windows-Pfade (C:/...) in Git Bash zurück – nötig für Docker-Volume-Mounts
+# pwd -W returns Windows paths (C:/...) in Git Bash – required for Docker volume mounts
 DIR="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
 
 docker run --rm \
