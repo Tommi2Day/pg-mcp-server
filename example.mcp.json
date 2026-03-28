@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "postgresql-test": {
-      "type": "http",
-      "url": "http://localhost:3000/mcp",
+      "type": "https",
+      "url": "https://pg-mxp-server.local:3000/mcp",
       "headers": {
-        "Authorization": "Bearer 62db7928ea77fff987794c33a4ae167ec098f194df25f817f11b11b0681a0504"
+        "Authorization": "Bearer xxxxxx"
       }
     }
   }

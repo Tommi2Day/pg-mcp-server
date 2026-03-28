@@ -39,7 +39,7 @@ services:
       # ── Authentifizierung ─────────────────────────────────────────────────
       # Bearer-Token für /mcp Endpoint (leer = Auth deaktiviert)
       # Erzeugen z.B. mit: openssl rand -hex 32
-      AUTH_TOKEN: "62db7928ea77fff987794c33a4ae167ec098f194df25f817f11b11b0681a0504"
+      AUTH_TOKEN: ""
 
       # ── PostgreSQL ────────────────────────────────────────────────────────
       PG_HOST: "postgres-test"
