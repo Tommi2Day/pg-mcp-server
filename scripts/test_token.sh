@@ -35,8 +35,8 @@ MCP_HEADERS=(
   -H "Authorization: Bearer $TOKEN"
   -H "Content-Type: application/json"
   -H "Accept: application/json, text/event-stream"
-  ${CLIENT_IP:+-H "X-Real-IP: $CLIENT_IP"}
 )
+[ -n "$CLIENT_IP" ] && MCP_HEADERS+=(-H "X-Real-IP: $CLIENT_IP")
 
 # Step 1: initialize — use -D - to capture response headers in output
 RAW=$(curl -sS -D - -w "\n%{http_code}" -X POST "$BASE_URL/mcp" \
