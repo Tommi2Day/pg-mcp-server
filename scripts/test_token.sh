@@ -19,6 +19,7 @@ fi
 TOKEN="${1:-}"
 SCHEMA="${2:-public}"
 BASE_URL="${MCP_URL:-http://localhost:3000}"
+CLIENT_IP="${X_REAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 
 die() { echo "❌ $*" >&2; exit 1; }
 ok()  { echo "✅ $*"; }
@@ -34,6 +35,7 @@ MCP_HEADERS=(
   -H "Authorization: Bearer $TOKEN"
   -H "Content-Type: application/json"
   -H "Accept: application/json, text/event-stream"
+  ${CLIENT_IP:+-H "X-Real-IP: $CLIENT_IP"}
 )
 
 # Step 1: initialize — use -D - to capture response headers in output

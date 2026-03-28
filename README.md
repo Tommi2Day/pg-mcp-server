@@ -352,6 +352,8 @@ Connects to the server using the given token and lists tables — useful to conf
 
 Reads `MCP_URL` from environment or `scripts/.env`. Exits with a clear error message on failure (invalid token, server unreachable, MCP tool error, etc.).
 
+The script sends an `X-Real-IP` header so the server logs the real client IP. The value is taken from `X_REAL_IP` env var if set, otherwise auto-detected from the first local interface (`hostname -I`).
+
 ### Manage tokens with curl
 
 ```bash
@@ -464,21 +466,21 @@ The release workflow (`.github/workflows/release.yml`) runs lint, tests, builds 
 
 ### Option 1 — Push a git tag
 
-Use `npm version` to bump `package.json` and `openapi.json` together, then push the tag:
+Use `npm version` to bump all version files together, then push the tag:
 
 ```bash
-npm version 1.2.3   # bumps package.json + openapi.json, commits, creates git tag
+npm version 1.2.3   # bumps package.json, openapi.json and Chart.yaml, commits, creates git tag
 git push origin main 1.2.3
 ```
 
-The `version` lifecycle script keeps `openapi.json` in sync automatically. The tag must match `[0-9]+.[0-9]+.[0-9]+` (e.g. `1.2.3`, no `v` prefix).
+The `version` lifecycle script keeps `openapi.json` and `helm/pg-mcp-server/Chart.yaml` in sync automatically. The tag must match `[0-9]+.[0-9]+.[0-9]+` (e.g. `1.2.3`, no `v` prefix).
 
 ### Option 2 — Manual dispatch (no local git required)
 
 Go to **Actions → Release → Run workflow**, enter a version number (e.g. `1.2.3`), and click **Run workflow**.
 
 The workflow will:
-1. **Bump** `package.json` and `openapi.json` to the entered version, commit and push to `main`
+1. **Bump** `package.json`, `openapi.json` and `helm/pg-mcp-server/Chart.yaml` to the entered version, commit and push to `main`
 2. Run lint and tests
 3. Build and push the Docker image (`tommi2day/pg-mcp-server:1.2.3`, `:1.2`, `:1`, `:latest`, `:sha-<short>`)
 4. **Create and push the git tag** automatically
