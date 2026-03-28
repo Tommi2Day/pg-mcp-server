@@ -47,7 +47,7 @@ if (isMain) {
 }
 
 // ── MCP server factory ────────────────────────────────────────────────────────
-function createMcpServer() {
+export function createMcpServer(dbPool = pool) {
   const server = new Server(
     { name: "pg-mcp-server", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -119,16 +119,16 @@ function createMcpServer() {
     try {
       switch (name) {
         case "test_connection": {
-          const res = await pool.query(
+          const res = await dbPool.query(
             "SELECT version(), current_database(), current_user, now(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-          ).catch(() => pool.query("SELECT version(), current_database(), current_user, now()"));
+          ).catch(() => dbPool.query("SELECT version(), current_database(), current_user, now()"));
           const r = res.rows[0];
           const sslStatus = r.ssl !== undefined ? (r.ssl ? "✅ encrypted" : "⚠️ unencrypted") : "unknown";
           return { content: [{ type: "text", text:
             `✅ Connection successful!\n\nDatabase   : ${r.current_database}\nUser       : ${r.current_user}\nTime       : ${r.now}\nDB TLS     : ${sslStatus}\nVersion    : ${r.version}` }] };
         }
         case "list_schemas": {
-          const res = await pool.query(
+          const res = await dbPool.query(
             `SELECT schema_name FROM information_schema.schemata
              WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast')
              ORDER BY schema_name`
@@ -137,7 +137,7 @@ function createMcpServer() {
         }
         case "list_tables": {
           const schema = args.schema || "public";
-          const res = await pool.query(
+          const res = await dbPool.query(
             `SELECT table_name, table_type FROM information_schema.tables
              WHERE table_schema = $1 ORDER BY table_type, table_name`, [schema]
           );
@@ -147,7 +147,7 @@ function createMcpServer() {
         }
         case "describe_table": {
           const schema = args.schema || "public";
-          const res = await pool.query(
+          const res = await dbPool.query(
             `SELECT c.column_name, c.data_type, c.character_maximum_length, c.is_nullable, c.column_default,
                     CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END AS key
              FROM information_schema.columns c
@@ -169,7 +169,7 @@ function createMcpServer() {
             `Table: ${schema}.${args.table}\n${"─".repeat(60)}\nColumn | Type | Nullable | Default | Key\n${"─".repeat(60)}\n${rows.join("\n")}` }] };
         }
         case "query": {
-          const res = await pool.query(args.sql, args.params || []);
+          const res = await dbPool.query(args.sql, args.params || []);
           if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
           const cols = Object.keys(res.rows[0]);
           const header = cols.join(" | ");
@@ -178,7 +178,7 @@ function createMcpServer() {
           return { content: [{ type: "text", text: `${header}\n${"─".repeat(Math.min(header.length, 120))}\n${rows.join("\n")}${note}` }] };
         }
         case "execute": {
-          const res = await pool.query(args.sql, args.params || []);
+          const res = await dbPool.query(args.sql, args.params || []);
           return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
         }
         default:
@@ -193,7 +193,7 @@ function createMcpServer() {
 }
 
 // ── Token table ───────────────────────────────────────────────────────────────
-async function initTokenTable(dbPool) {
+export async function initTokenTable(dbPool) {
   await dbPool.query(`
     CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
       id           SERIAL PRIMARY KEY,
@@ -207,7 +207,7 @@ async function initTokenTable(dbPool) {
 }
 
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
-async function handleRequest(req, res) {
+export async function handleRequest(req, res) {
   if (req.url === "/health" && req.method === "GET") {
     const tlsEnabled = process.env.TLS_ENABLED !== "false";
     res.writeHead(200, { "Content-Type": "application/json" });
