@@ -38,13 +38,15 @@ jobs:
         run: |
           npm version "${{ inputs.tag }}" --no-git-tag-version
           node --input-type=commonjs -e "
-            const fs = require('fs');
+            const fs = require('fs'), v = '${{ inputs.tag }}';
             const a = JSON.parse(fs.readFileSync('openapi.json'));
-            a.info.version = '${{ inputs.tag }}';
+            a.info.version = v;
             fs.writeFileSync('openapi.json', JSON.stringify(a, null, 2) + '\n');
+            let c = fs.readFileSync('helm/pg-mcp-server/Chart.yaml', 'utf8');
+            c = c.replace(/^version: .+/m, 'version: ' + v)
+                 .replace(/^appVersion: .+/m, 'appVersion: \"' + v + '\"');
+            fs.writeFileSync('helm/pg-mcp-server/Chart.yaml', c);
           "
-          sed -i "s/^version: .*/version: ${{ inputs.tag }}/" helm/pg-mcp-server/Chart.yaml
-          sed -i "s/^appVersion: .*/appVersion: \"${{ inputs.tag }}\"/" helm/pg-mcp-server/Chart.yaml
 
       - name: Commit and push
         run: |

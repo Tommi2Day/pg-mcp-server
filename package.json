@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "version": "node --input-type=commonjs -e \"const fs=require('fs');const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=process.env.npm_new_version;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');\" && sed -i \"s/^version: .*/version: $npm_new_version/\" helm/pg-mcp-server/Chart.yaml && sed -i \"s/^appVersion: .*/appVersion: \\\"$npm_new_version\\\"/\" helm/pg-mcp-server/Chart.yaml && git add openapi.json helm/pg-mcp-server/Chart.yaml"
+    "version": "node --input-type=commonjs -e \"const fs=require('fs'),v=process.env.npm_new_version;const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=v;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');let c=fs.readFileSync('helm/pg-mcp-server/Chart.yaml','utf8');c=c.replace(/^version: .+/m,'version: '+v).replace(/^appVersion: .+/m,'appVersion: \\\"'+v+'\\\"');fs.writeFileSync('helm/pg-mcp-server/Chart.yaml',c);\" && git add openapi.json helm/pg-mcp-server/Chart.yaml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
