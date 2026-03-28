@@ -23,6 +23,7 @@ import pg from "pg";
 import https from "node:https";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
   checkAuth, handleAdminRequest,
@@ -31,7 +32,7 @@ import {
 const { Pool } = pg;
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
-// ── DB pool (nur wenn direkt gestartet) ──────────────────────────────────────
+// ── DB pool (only when run directly) ─────────────────────────────────────────
 let pool;
 if (isMain) {
   pool = new Pool({
@@ -47,7 +48,7 @@ if (isMain) {
 }
 
 // ── MCP server factory ────────────────────────────────────────────────────────
-export function createMcpServer(dbPool = pool) {
+export function createMcpServer(dbPool = pool, tokenName = "unknown") {
   const server = new Server(
     { name: "pg-mcp-server", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -116,6 +117,7 @@ export function createMcpServer(dbPool = pool) {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}"`);
     try {
       switch (name) {
         case "test_connection": {
@@ -206,6 +208,9 @@ export async function initTokenTable(dbPool) {
   `);
 }
 
+// ── Session store (stateful HTTP sessions) ────────────────────────────────────
+const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
+
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
 export async function handleRequest(req, res) {
   if (req.url === "/health" && req.method === "GET") {
@@ -219,18 +224,31 @@ export async function handleRequest(req, res) {
     return;
   }
   if (req.url === "/mcp") {
-    if (!await checkAuth(pool, req, res)) return;
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    const server = createMcpServer();
-    await server.connect(transport);
-    await transport.handleRequest(req, res);
+    const auth = await checkAuth(pool, req, res);
+    if (!auth.ok) return;
+
+    const sessionId = req.headers["mcp-session-id"];
+    if (sessionId && sessions.has(sessionId)) {
+      // Resume existing session
+      await sessions.get(sessionId).handleRequest(req, res);
+    } else {
+      // New session
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => { sessions.set(id, transport); },
+      });
+      transport.onclose = () => { sessions.delete(sessionId); };
+      const server = createMcpServer(pool, auth.name);
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+    }
     return;
   }
   res.writeHead(404);
   res.end("Not found");
 }
 
-// ── Transport selection (nur wenn direkt gestartet) ───────────────────────────
+// ── Transport selection (only when run directly) ──────────────────────────────
 if (isMain) {
   const TRANSPORT   = (process.env.TRANSPORT   || "stdio").toLowerCase();
   const TLS_ENABLED = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";

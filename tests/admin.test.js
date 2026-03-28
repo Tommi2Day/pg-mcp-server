@@ -15,7 +15,7 @@ describe("handleAdminRequest", () => {
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
   // ── Auth guard ──────────────────────────────────────────────────────────────
-  it("gibt 503 zurück wenn AUTH_TOKEN nicht konfiguriert", async () => {
+  it("returns 503 when AUTH_TOKEN is not configured", async () => {
     delete process.env.AUTH_TOKEN;
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
@@ -24,7 +24,7 @@ describe("handleAdminRequest", () => {
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
-  it("gibt 401 zurück bei falschem Admin-Token", async () => {
+  it("returns 401 for a wrong admin token", async () => {
     const req = makeReq("GET", "/admin/tokens", { headers: { authorization: "Bearer wrong" } });
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
@@ -32,7 +32,7 @@ describe("handleAdminRequest", () => {
   });
 
   // ── GET /admin/tokens ───────────────────────────────────────────────────────
-  it("GET listet alle Token auf", async () => {
+  it("GET lists all tokens", async () => {
     const tokens = [
       { id: 1, name: "claude", active: true, created_at: "2025-01-01", last_used_at: null },
     ];
@@ -45,7 +45,7 @@ describe("handleAdminRequest", () => {
   });
 
   // ── POST /admin/tokens ──────────────────────────────────────────────────────
-  it("POST erstellt ein neues Token", async () => {
+  it("POST creates a new token", async () => {
     const created = { id: 2, name: "new-client", created_at: "2025-01-01" };
     mockPool.query.mockResolvedValueOnce({ rows: [created] });
     const req = makeReq("POST", "/admin/tokens", { body: JSON.stringify({ name: "new-client" }) });
@@ -55,15 +55,15 @@ describe("handleAdminRequest", () => {
     const body = resBody(res);
     expect(body.name).toBe("new-client");
     expect(body.id).toBe(2);
-    // Token-Klartext muss enthalten sein und 64 hex chars haben
+    // plaintext token must be present and 64 hex chars
     expect(body.token).toMatch(/^[0-9a-f]{64}$/);
-    // DB speichert nur den Hash, nicht den Klartext
+    // DB stores only the hash, not the plaintext
     const [, params] = mockPool.query.mock.calls[0];
     expect(params[1]).not.toBe(body.token);
     expect(params[1]).toHaveLength(64); // SHA-256 hex
   });
 
-  it("POST gibt 400 zurück wenn name fehlt", async () => {
+  it("POST returns 400 when name is missing", async () => {
     const req = makeReq("POST", "/admin/tokens", { body: JSON.stringify({}) });
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
@@ -71,7 +71,7 @@ describe("handleAdminRequest", () => {
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
-  it("POST gibt 400 zurück wenn name nur Whitespace ist", async () => {
+  it("POST returns 400 when name is whitespace only", async () => {
     const req = makeReq("POST", "/admin/tokens", { body: JSON.stringify({ name: "   " }) });
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
@@ -79,7 +79,7 @@ describe("handleAdminRequest", () => {
   });
 
   // ── PATCH /admin/tokens/:id ─────────────────────────────────────────────────
-  it("PATCH aktualisiert name und active", async () => {
+  it("PATCH updates name and active", async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [{ id: 3, name: "renamed", active: false }] });
     const req = makeReq("PATCH", "/admin/tokens/3", {
       body: JSON.stringify({ name: "renamed", active: false }),
@@ -90,7 +90,7 @@ describe("handleAdminRequest", () => {
     expect(resBody(res)).toMatchObject({ id: 3, name: "renamed", active: false });
   });
 
-  it("PATCH gibt 400 zurück wenn keine gültigen Felder angegeben", async () => {
+  it("PATCH returns 400 when no valid fields are provided", async () => {
     const req = makeReq("PATCH", "/admin/tokens/3", { body: JSON.stringify({}) });
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
@@ -98,7 +98,7 @@ describe("handleAdminRequest", () => {
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
-  it("PATCH gibt 404 zurück wenn Token nicht gefunden", async () => {
+  it("PATCH returns 404 when token is not found", async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     const req = makeReq("PATCH", "/admin/tokens/99", { body: JSON.stringify({ name: "x" }) });
     const res = makeRes();
@@ -107,20 +107,20 @@ describe("handleAdminRequest", () => {
   });
 
   // ── DELETE /admin/tokens/:id ────────────────────────────────────────────────
-  it("DELETE deaktiviert ein Token", async () => {
+  it("DELETE deactivates a token", async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [{ id: 5 }] });
     const req = makeReq("DELETE", "/admin/tokens/5");
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
     expect(resBody(res)).toEqual({ ok: true, id: 5 });
-    // Prüfe dass active=false gesetzt wird
+    // verify active=false is set
     const [sql, params] = mockPool.query.mock.calls[0];
     expect(sql).toContain("active = false");
     expect(params).toContain(5);
   });
 
-  it("DELETE gibt 404 zurück wenn Token nicht gefunden", async () => {
+  it("DELETE returns 404 when token is not found", async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     const req = makeReq("DELETE", "/admin/tokens/99");
     const res = makeRes();
@@ -128,15 +128,15 @@ describe("handleAdminRequest", () => {
     expect(res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
   });
 
-  // ── Fehlerbehandlung ────────────────────────────────────────────────────────
-  it("gibt 405 zurück für nicht erlaubte Methode", async () => {
+  // ── Error handling ──────────────────────────────────────────────────────────
+  it("returns 405 for a disallowed method", async () => {
     const req = makeReq("PUT", "/admin/tokens");
     const res = makeRes();
     await handleAdminRequest(mockPool, req, res);
     expect(res.writeHead).toHaveBeenCalledWith(405, expect.any(Object));
   });
 
-  it("gibt 500 zurück bei DB-Fehler", async () => {
+  it("returns 500 on a DB error", async () => {
     mockPool.query.mockRejectedValueOnce(new Error("connection lost"));
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();

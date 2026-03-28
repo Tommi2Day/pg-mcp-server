@@ -86,25 +86,26 @@ export function checkAdminAuth(req, res) {
   return true;
 }
 
-/** MCP auth — accepts AUTH_TOKEN env var OR any active DB token. */
+/** MCP auth — accepts AUTH_TOKEN env var OR any active DB token.
+ *  Returns { ok: true, name: string } on success, { ok: false } on failure. */
 export async function checkAuth(pool, req, res) {
   const authToken = getAuthToken();
-  if (!authToken) return true; // Auth deaktiviert wenn kein Token gesetzt
+  if (!authToken) return { ok: true, name: "anonymous" }; // auth disabled
   const token = extractBearer(req);
-  if (!token) { send401(res); return false; }
-  if (token === authToken) return true;
-  // DB-Token prüfen
+  if (!token) { send401(res); return { ok: false }; }
+  if (token === authToken) return { ok: true, name: "admin" };
+  // DB token check
   const hash = hashToken(token);
   const { rows } = await pool.query(
-    "SELECT id FROM mcp_auth_tokens WHERE token_hash = $1 AND active = true",
+    "SELECT id, name FROM mcp_auth_tokens WHERE token_hash = $1 AND active = true",
     [hash]
   );
-  if (!rows.length) { send401(res); return false; }
+  if (!rows.length) { send401(res); return { ok: false }; }
   pool.query("UPDATE mcp_auth_tokens SET last_used_at = now() WHERE id = $1", [rows[0].id]).catch(() => {});
-  return true;
+  return { ok: true, name: rows[0].name };
 }
 
-// ── Admin: Token-Verwaltung (/admin/tokens[/:id]) ─────────────────────────────
+// ── Admin: token management (/admin/tokens[/:id]) ────────────────────────────
 export async function handleAdminRequest(pool, req, res) {
   if (!checkAdminAuth(req, res)) return;
 
@@ -112,8 +113,11 @@ export async function handleAdminRequest(pool, req, res) {
   const idStr = pathname.replace(/^\/admin\/tokens\/?/, "");
   const id    = idStr ? parseInt(idStr, 10) : null;
 
+  const ip = req.socket?.remoteAddress || "-";
+  console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}"`);
+
   try {
-    // GET /admin/tokens – alle Token auflisten
+    // GET /admin/tokens – list all tokens
     if (req.method === "GET" && !id) {
       const { rows } = await pool.query(
         "SELECT id, name, created_at, last_used_at, active FROM mcp_auth_tokens ORDER BY created_at DESC"
@@ -123,7 +127,7 @@ export async function handleAdminRequest(pool, req, res) {
       return;
     }
 
-    // POST /admin/tokens – neues Token erstellen
+    // POST /admin/tokens – create new token
     if (req.method === "POST" && !id) {
       const body = await readBody(req);
       const { name } = JSON.parse(body || "{}");
@@ -138,11 +142,11 @@ export async function handleAdminRequest(pool, req, res) {
         [name.trim(), hashToken(token)]
       );
       res.writeHead(201, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ...rows[0], token })); // Klartext nur einmalig
+      res.end(JSON.stringify({ ...rows[0], token })); // plaintext returned once only
       return;
     }
 
-    // PATCH /admin/tokens/:id – name oder active ändern
+    // PATCH /admin/tokens/:id – update name or active
     if (req.method === "PATCH" && id) {
       const body = await readBody(req);
       const updates = JSON.parse(body || "{}");
@@ -169,7 +173,7 @@ export async function handleAdminRequest(pool, req, res) {
       return;
     }
 
-    // DELETE /admin/tokens/:id – Token deaktivieren
+    // DELETE /admin/tokens/:id – deactivate token
     if (req.method === "DELETE" && id) {
       const { rows } = await pool.query(
         "UPDATE mcp_auth_tokens SET active = false WHERE id = $1 RETURNING id",

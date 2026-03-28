@@ -15,20 +15,20 @@ import { makeReq, makeRes, resBody } from "./helpers.js";
 
 // ── hashToken ─────────────────────────────────────────────────────────────────
 describe("hashToken", () => {
-  it("gibt einen 64-stelligen Hex-String zurück", () => {
+  it("returns a 64-character hex string", () => {
     expect(hashToken("hello")).toHaveLength(64);
     expect(hashToken("hello")).toMatch(/^[0-9a-f]+$/);
   });
 
-  it("ist deterministisch", () => {
+  it("is deterministic", () => {
     expect(hashToken("abc")).toBe(hashToken("abc"));
   });
 
-  it("produziert verschiedene Hashes für verschiedene Eingaben", () => {
+  it("produces different hashes for different inputs", () => {
     expect(hashToken("a")).not.toBe(hashToken("b"));
   });
 
-  it("stimmt mit node:crypto SHA-256 überein", () => {
+  it("matches node:crypto SHA-256", () => {
     const expected = crypto.createHash("sha256").update("test-token").digest("hex");
     expect(hashToken("test-token")).toBe(expected);
   });
@@ -36,30 +36,30 @@ describe("hashToken", () => {
 
 // ── extractBearer ─────────────────────────────────────────────────────────────
 describe("extractBearer", () => {
-  it("extrahiert den Token aus einem gültigen Bearer-Header", () => {
+  it("extracts the token from a valid Bearer header", () => {
     expect(extractBearer({ headers: { authorization: "Bearer mytoken123" } })).toBe("mytoken123");
   });
 
-  it("gibt leeren String zurück wenn kein Authorization-Header vorhanden", () => {
+  it("returns empty string when no Authorization header is present", () => {
     expect(extractBearer({ headers: {} })).toBe("");
   });
 
-  it("gibt leeren String zurück für nicht-Bearer Schemes", () => {
+  it("returns empty string for non-Bearer schemes", () => {
     expect(extractBearer({ headers: { authorization: "Basic dXNlcjpwYXNz" } })).toBe("");
   });
 
-  it("gibt leeren String zurück für 'Bearer ' ohne Token", () => {
+  it("returns empty string for 'Bearer ' with no token", () => {
     expect(extractBearer({ headers: { authorization: "Bearer " } })).toBe("");
   });
 
-  it("gibt leeren String zurück wenn headers undefined ist", () => {
+  it("returns empty string when headers is undefined", () => {
     expect(extractBearer({})).toBe("");
   });
 });
 
 // ── send401 ───────────────────────────────────────────────────────────────────
 describe("send401", () => {
-  it("setzt Status 401 mit WWW-Authenticate Header", () => {
+  it("sets status 401 with WWW-Authenticate header", () => {
     const res = makeRes();
     send401(res);
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.objectContaining({
@@ -68,7 +68,7 @@ describe("send401", () => {
     }));
   });
 
-  it("schreibt JSON-Fehlerantwort", () => {
+  it("writes a JSON error response", () => {
     const res = makeRes();
     send401(res);
     expect(resBody(res)).toEqual({ error: "Unauthorized" });
@@ -77,7 +77,7 @@ describe("send401", () => {
 
 // ── readBody ──────────────────────────────────────────────────────────────────
 describe("readBody", () => {
-  it("löst mit verketteten Chunks auf", async () => {
+  it("resolves with concatenated chunks", async () => {
     const req = new EventEmitter();
     const promise = readBody(req);
     req.emit("data", "hel");
@@ -86,14 +86,14 @@ describe("readBody", () => {
     expect(await promise).toBe("hello");
   });
 
-  it("löst mit leerem String auf wenn kein Body", async () => {
+  it("resolves with empty string when no body", async () => {
     const req = new EventEmitter();
     const promise = readBody(req);
     req.emit("end");
     expect(await promise).toBe("");
   });
 
-  it("lehnt bei Stream-Fehler ab", async () => {
+  it("rejects on stream error", async () => {
     const req = new EventEmitter();
     const promise = readBody(req);
     req.emit("error", new Error("connection reset"));
@@ -110,31 +110,31 @@ describe("buildPgSsl", () => {
     delete process.env.PG_SSL_KEY_FILE;
   });
 
-  it("gibt false zurück wenn PG_SSL nicht gesetzt", () => {
+  it("returns false when PG_SSL is not set", () => {
     expect(buildPgSsl()).toBe(false);
   });
 
-  it("gibt false zurück für PG_SSL=false", () => {
+  it("returns false for PG_SSL=false", () => {
     process.env.PG_SSL = "false";
     expect(buildPgSsl()).toBe(false);
   });
 
-  it("gibt false zurück für PG_SSL=0", () => {
+  it("returns false for PG_SSL=0", () => {
     process.env.PG_SSL = "0";
     expect(buildPgSsl()).toBe(false);
   });
 
-  it("gibt false zurück für PG_SSL=prefer (pg-Treiber unterstützt kein automatisches Fallback)", () => {
+  it("returns false for PG_SSL=prefer (pg driver has no automatic fallback)", () => {
     process.env.PG_SSL = "prefer";
     expect(buildPgSsl()).toBe(false);
   });
 
-  it("gibt SSL-Config mit rejectUnauthorized=false zurück für PG_SSL=true", () => {
+  it("returns SSL config with rejectUnauthorized=false for PG_SSL=true", () => {
     process.env.PG_SSL = "true";
     expect(buildPgSsl()).toMatchObject({ rejectUnauthorized: false });
   });
 
-  it("ruft process.exit auf für PG_SSL=verify ohne PG_SSL_CA_FILE", () => {
+  it("calls process.exit for PG_SSL=verify without PG_SSL_CA_FILE", () => {
     process.env.PG_SSL = "verify";
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
     expect(() => buildPgSsl()).toThrow("exit");
@@ -146,11 +146,11 @@ describe("buildPgSsl", () => {
 describe("getAuthToken", () => {
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
-  it("gibt leeren String zurück wenn AUTH_TOKEN nicht gesetzt", () => {
+  it("returns empty string when AUTH_TOKEN is not set", () => {
     expect(getAuthToken()).toBe("");
   });
 
-  it("gibt den gesetzten AUTH_TOKEN zurück", () => {
+  it("returns the configured AUTH_TOKEN", () => {
     process.env.AUTH_TOKEN = "my-secret";
     expect(getAuthToken()).toBe("my-secret");
   });
@@ -160,7 +160,7 @@ describe("getAuthToken", () => {
 describe("checkAdminAuth", () => {
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
-  it("gibt false zurück mit 503 wenn AUTH_TOKEN nicht konfiguriert", () => {
+  it("returns false with 503 when AUTH_TOKEN is not configured", () => {
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
     expect(checkAdminAuth(req, res)).toBe(false);
@@ -168,7 +168,7 @@ describe("checkAdminAuth", () => {
     expect(resBody(res)).toMatchObject({ error: expect.stringContaining("AUTH_TOKEN") });
   });
 
-  it("gibt false zurück mit 401 bei falschem Token", () => {
+  it("returns false with 401 for a wrong token", () => {
     process.env.AUTH_TOKEN = "correct";
     const req = makeReq("GET", "/admin/tokens", { headers: { authorization: "Bearer wrong" } });
     const res = makeRes();
@@ -176,7 +176,7 @@ describe("checkAdminAuth", () => {
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
   });
 
-  it("gibt true zurück bei korrektem Token", () => {
+  it("returns true for the correct token", () => {
     process.env.AUTH_TOKEN = "correct";
     const req = makeReq("GET", "/admin/tokens", { headers: { authorization: "Bearer correct" } });
     const res = makeRes();
@@ -196,49 +196,49 @@ describe("checkAuth", () => {
 
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
-  it("gibt true zurück wenn AUTH_TOKEN nicht gesetzt (Auth deaktiviert)", async () => {
+  it("returns { ok: true, name: 'anonymous' } when AUTH_TOKEN is not set (auth disabled)", async () => {
     const req = makeReq("POST", "/mcp");
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toBe(true);
+    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "anonymous" });
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
-  it("gibt false zurück mit 401 wenn kein Token im Request", async () => {
+  it("returns { ok: false } with 401 when no token is in the request", async () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "" } });
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toBe(false);
+    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
   });
 
-  it("gibt true zurück bei korrektem ENV-Token", async () => {
+  it("returns { ok: true, name: 'admin' } for the correct ENV token", async () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } });
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toBe(true);
+    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "admin" });
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
-  it("gibt true zurück bei gültigem DB-Token", async () => {
+  it("returns { ok: true, name: <token-name> } for a valid DB token", async () => {
     process.env.AUTH_TOKEN = "admin-secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer db-token" } });
     const res = makeRes();
     mockPool.query
-      .mockResolvedValueOnce({ rows: [{ id: 7 }] })  // SELECT
-      .mockResolvedValueOnce({ rows: [] });            // UPDATE last_used_at
-    expect(await checkAuth(mockPool, req, res)).toBe(true);
+      .mockResolvedValueOnce({ rows: [{ id: 7, name: "claude-desktop" }] })  // SELECT
+      .mockResolvedValueOnce({ rows: [] });                                    // UPDATE last_used_at
+    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "claude-desktop" });
     expect(mockPool.query).toHaveBeenCalledWith(
-      expect.stringContaining("SELECT id FROM mcp_auth_tokens"),
+      expect.stringContaining("SELECT id, name FROM mcp_auth_tokens"),
       [hashToken("db-token")]
     );
   });
 
-  it("gibt false zurück bei ungültigem Token nicht in DB", async () => {
+  it("returns { ok: false } for a token not found in DB", async () => {
     process.env.AUTH_TOKEN = "admin-secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer bad" } });
     const res = makeRes();
     mockPool.query.mockResolvedValueOnce({ rows: [] });
-    expect(await checkAuth(mockPool, req, res)).toBe(false);
+    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
   });
 });
