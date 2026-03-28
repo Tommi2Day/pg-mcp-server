@@ -37,3 +37,6 @@ docker run -d --name $NAME \
   -e PG_PASSWORD=$PG_PASSWORD \
   -e PG_SSL=${PG_SSL:-false} \
   tommi2day/pg-mcp-server:latest
+
+sleep 10
+docker logs $NAME
