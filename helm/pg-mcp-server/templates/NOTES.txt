@@ -1,0 +1,50 @@
+🐘 PostgreSQL MCP Server deployed!
+
+  Release  : {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Version  : {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HTTP TLS     : {{ if .Values.server.tlsEnabled }}🔐 HTTPS aktiv{{ else }}ℹ️  HTTP (kein TLS){{ end }}
+  PostgreSQL   : {{ if eq .Values.postgresql.ssl "verify" }}🔐 TLS + Zertifikatsprüfung{{ else if eq .Values.postgresql.ssl "true" }}🔒 TLS (kein Cert-Check){{ else }}ℹ️  unverschlüsselt{{ end }}
+  mTLS Clients : {{ if .Values.tls.clientCaSecret }}🔐 aktiv{{ else }}–{{ end }}
+  PG Client TLS: {{ if .Values.tls.pgClientCertSecret }}🔐 aktiv{{ else }}–{{ end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DATENBANK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Host    : {{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}
+  Database: {{ .Values.postgresql.database }}
+  User    : {{ .Values.postgresql.user }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MCP ENDPOINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- $scheme := "http" }}{{ if .Values.server.tlsEnabled }}{{ $scheme = "https" }}{{ end }}
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  🌐 {{ $scheme }}://{{ .host }}/mcp
+{{- end }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+  External-IP abwarten:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "pg-mcp-server.fullname" . }}
+  → MCP: {{ $scheme }}://<EXTERNAL-IP>:{{ .Values.service.port }}/mcp
+{{- else }}
+  Port-Forward zum Testen:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "pg-mcp-server.fullname" . }} 3000:{{ .Values.service.port }}
+  → MCP: {{ $scheme }}://localhost:3000/mcp
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CLAUDE DESKTOP CONFIG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    "mcpServers": {
+      "postgresql": {
+        "type": "http",
+        "url": "{{ $scheme }}://<YOUR-HOST>:{{ .Values.service.port }}/mcp"
+      }
+    }
+  }

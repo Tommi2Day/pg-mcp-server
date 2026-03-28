@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pg-mcp-server.fullname" . }}
+  labels:
+    {{- include "pg-mcp-server.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pg-mcp-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "pg-mcp-server.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: pg-mcp-server
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+          env:
+            - name: TLS_ENABLED
+              value: {{ .Values.server.tlsEnabled | default "false" | quote }}
+            - name: TRANSPORT
+              value: {{ .Values.server.transport | quote }}
+            - name: PORT
+              value: {{ .Values.server.port | quote }}
+
+            # ── HTTP TLS ──────────────────────────────────────────────────
+            {{- if .Values.server.tlsEnabled }}
+            - name: TLS_CERT_FILE
+              value: /certs/tls.crt
+            - name: TLS_KEY_FILE
+              value: /certs/tls.key
+            {{- if .Values.tls.clientCaSecret }}
+            - name: TLS_CA_FILE
+              value: /certs-client-ca/ca.crt
+            {{- end }}
+            {{- end }}
+
+            # ── Authentication ────────────────────────────────────────────
+            {{- if or .Values.auth.token .Values.auth.existingSecret }}
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret | default (printf "%s-auth" (include "pg-mcp-server.fullname" .)) }}
+                  key: {{ .Values.auth.existingSecretKey | default "token" }}
+            {{- end }}
+
+            # ── PostgreSQL ────────────────────────────────────────────────
+            - name: PG_HOST
+              value: {{ .Values.postgresql.host | quote }}
+            - name: PG_PORT
+              value: {{ .Values.postgresql.port | quote }}
+            - name: PG_DATABASE
+              value: {{ .Values.postgresql.database | quote }}
+            - name: PG_USER
+              value: {{ .Values.postgresql.user | quote }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret | default (printf "%s-pg-credentials" (include "pg-mcp-server.fullname" .)) }}
+                  key: {{ .Values.postgresql.existingSecretKey | default "password" }}
+            - name: PG_SSL
+              value: {{ .Values.postgresql.ssl | quote }}
+            {{- if .Values.tls.pgCaSecret }}
+            - name: PG_SSL_CA_FILE
+              value: /certs-pg-ca/ca.crt
+            {{- end }}
+            {{- if .Values.tls.pgClientCertSecret }}
+            - name: PG_SSL_CERT_FILE
+              value: /certs-pg-client/tls.crt
+            - name: PG_SSL_KEY_FILE
+              value: /certs-pg-client/tls.key
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+          volumeMounts:
+            {{- if .Values.server.tlsEnabled }}
+            - name: certs
+              mountPath: /certs
+            {{- end }}
+            {{- if .Values.tls.pgCaSecret }}
+            - name: pg-ca
+              mountPath: /certs-pg-ca
+              readOnly: true
+            {{- end }}
+            {{- if .Values.tls.pgClientCertSecret }}
+            - name: pg-client-cert
+              mountPath: /certs-pg-client
+              readOnly: true
+            {{- end }}
+            {{- if .Values.tls.clientCaSecret }}
+            - name: client-ca
+              mountPath: /certs-client-ca
+              readOnly: true
+            {{- end }}
+
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        {{- if .Values.server.tlsEnabled }}
+        - name: certs
+          {{- if .Values.tls.existingSecret }}
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+          {{- else if and .Values.tls.cert .Values.tls.key }}
+          secret:
+            secretName: {{ include "pg-mcp-server.fullname" . }}-tls
+          {{- else }}
+          emptyDir: {}   # entrypoint generates self-signed cert at startup
+          {{- end }}
+        {{- end }}
+        {{- if .Values.tls.pgCaSecret }}
+        - name: pg-ca
+          secret:
+            secretName: {{ .Values.tls.pgCaSecret }}
+        {{- end }}
+        {{- if .Values.tls.pgClientCertSecret }}
+        - name: pg-client-cert
+          secret:
+            secretName: {{ .Values.tls.pgClientCertSecret }}
+        {{- end }}
+        {{- if .Values.tls.clientCaSecret }}
+        - name: client-ca
+          secret:
+            secretName: {{ .Values.tls.clientCaSecret }}
+        {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

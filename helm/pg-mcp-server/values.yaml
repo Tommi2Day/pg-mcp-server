@@ -1,0 +1,141 @@
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: pg-mcp-server   # e.g. ghcr.io/your-org/pg-mcp-server
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ── Replica count ──────────────────────────────────────────────────────────────
+replicaCount: 1
+
+# ── PostgreSQL connection ──────────────────────────────────────────────────────
+postgresql:
+  host: "localhost"
+  port: 5432
+  database: "postgres"
+  user: "postgres"
+  password: ""                  # use existingSecret in production!
+
+  # ssl: false   → no TLS (default)
+  # ssl: true    → TLS, skip server cert check
+  # ssl: verify  → TLS + verify server cert (requires tls.pgCaSecret)
+  ssl: "false"
+
+  # existingSecret: "my-pg-secret"   # Secret key must be "password"
+  # existingSecretKey: "password"
+
+# ── Authentication ────────────────────────────────────────────────────────────
+auth:
+  # Bearer-Token für /mcp Endpoint. Leer → Auth deaktiviert (nur intern/dev!)
+  # Erzeugen: openssl rand -hex 32
+  token: ""
+  # existingSecret: "my-auth-secret"   # Secret-Key muss "token" heißen
+  # existingSecretKey: "token"
+
+# ── MCP Server ────────────────────────────────────────────────────────────────
+server:
+  port: 3000
+  transport: http
+
+  # tlsEnabled: false → plain HTTP (default, easy for dev/internal use)
+  # tlsEnabled: true  → HTTPS (requires tls.existingSecret or tls.cert/key)
+  tlsEnabled: false
+
+# ── TLS certificates ──────────────────────────────────────────────────────────
+tls:
+  # Server certificate for HTTPS (only used when server.tlsEnabled=true).
+  # Option A: existing TLS Secret (type: kubernetes.io/tls)
+  existingSecret: ""
+  # Option B: inline base64-encoded PEM (testing only)
+  cert: ""
+  key: ""
+
+  # CA to verify PostgreSQL server cert (required when postgresql.ssl=verify)
+  # Secret must contain "ca.crt"
+  pgCaSecret: ""
+
+  # Mutual TLS to PostgreSQL – Secret must contain "tls.crt" and "tls.key"
+  pgClientCertSecret: ""
+
+  # CA to verify MCP client certs (enables mTLS for incoming connections)
+  # Secret must contain "ca.crt"
+  clientCaSecret: ""
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3000
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"   # when tlsEnabled=true
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: pg-mcp.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # - secretName: pg-mcp-ingress-tls
+  #   hosts:
+  #     - pg-mcp.example.com
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ── Autoscaling ───────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# ── Health probes ─────────────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /health
+    port: mcp
+    # scheme: HTTPS   # uncomment when server.tlsEnabled=true
+  initialDelaySeconds: 15
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: mcp
+    # scheme: HTTPS   # uncomment when server.tlsEnabled=true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# ── Security ──────────────────────────────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: false   # entrypoint runs as root briefly to fix cert permissions
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount:
+  create: false
+  name: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}
+extraEnv: []

@@ -1,0 +1,25 @@
+{
+  "name": "pg-mcp-server",
+  "version": "1.0.0",
+  "description": "PostgreSQL MCP Server for Claude – stdio & HTTP",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "start:http": "TRANSPORT=http node index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,64 @@
+services:
+  postgres-test:
+    image: postgres:18-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mcp-net
+
+  pg-mcp-server:
+    build: .
+    image: pg-mcp-server:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    environment:
+      TRANSPORT: http
+      PORT: 3000
+
+      # ── TLS (HTTP) ────────────────────────────────────────────────────────
+      # false → plain HTTP (Standard)
+      # true  → HTTPS (certs Volume muss gemountet sein)
+      TLS_ENABLED: "false"
+      TLS_CERT_FILE: /certs/tls.crt
+      TLS_KEY_FILE:  /certs/tls.key
+      # TLS_CA_FILE: /certs/client-ca.crt
+      # TLS_SAN: "DNS:mein-host.local,IP:192.168.1.10"
+
+      # ── Authentifizierung ─────────────────────────────────────────────────
+      # Bearer-Token für /mcp Endpoint (leer = Auth deaktiviert)
+      # Erzeugen z.B. mit: openssl rand -hex 32
+      AUTH_TOKEN: "62db7928ea77fff987794c33a4ae167ec098f194df25f817f11b11b0681a0504"
+
+      # ── PostgreSQL ────────────────────────────────────────────────────────
+      PG_HOST: "postgres-test"
+      PG_PORT: "5432"
+      PG_DATABASE: "testdb"
+      PG_USER: "postgres"
+      PG_PASSWORD: "postgres"
+      # PG_SSL: false | true | verify
+      PG_SSL: "false"
+      # PG_SSL_CA_FILE: /certs/pg-ca.crt
+
+    # volumes:
+    #   - ./certs:/certs:ro   # einkommentieren wenn TLS_ENABLED=true
+
+    networks:
+      - mcp-net
+
+    restart: unless-stopped
+
+networks:
+  mcp-net:
+    driver: bridge
