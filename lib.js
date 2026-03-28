@@ -19,7 +19,7 @@ export function readFileEnv(envVar) {
 
 export function buildPgSsl() {
   const mode = (process.env.PG_SSL || "false").toLowerCase();
-  if (mode === "false" || mode === "0" || mode === "no") return false;
+  if (mode === "false" || mode === "0" || mode === "no" || mode === "prefer") return false;
 
   const sslConfig = {};
   if (mode === "verify") {

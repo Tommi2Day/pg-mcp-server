@@ -124,6 +124,11 @@ describe("buildPgSsl", () => {
     expect(buildPgSsl()).toBe(false);
   });
 
+  it("gibt false zurück für PG_SSL=prefer (pg-Treiber unterstützt kein automatisches Fallback)", () => {
+    process.env.PG_SSL = "prefer";
+    expect(buildPgSsl()).toBe(false);
+  });
+
   it("gibt SSL-Config mit rejectUnauthorized=false zurück für PG_SSL=true", () => {
     process.env.PG_SSL = "true";
     expect(buildPgSsl()).toMatchObject({ rejectUnauthorized: false });
