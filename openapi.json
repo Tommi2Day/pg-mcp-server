@@ -1,0 +1,319 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PostgreSQL MCP Server",
+    "version": "1.0.0",
+    "description": "REST API for the PostgreSQL MCP Server. Exposes a health endpoint, MCP Streamable-HTTP transport, and an admin API for token management."
+  },
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Local / HTTP" },
+    { "url": "https://localhost:3000", "description": "Local / HTTPS" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "AdminToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Value of the AUTH_TOKEN environment variable. Required for /admin/tokens and /mcp."
+      },
+      "DbToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A DB token created via POST /admin/tokens. Grants access to /mcp only."
+      }
+    },
+    "schemas": {
+      "Token": {
+        "type": "object",
+        "properties": {
+          "id":           { "type": "integer", "example": 1 },
+          "name":         { "type": "string",  "example": "claude-desktop" },
+          "active":       { "type": "boolean", "example": true },
+          "created_at":   { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "Not found" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Returns server status and whether TLS is enabled. No authentication required.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Server is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "tls":    { "type": "boolean", "example": false }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "MCP Streamable-HTTP endpoint",
+        "description": "MCP protocol transport. Requires a Bearer token (admin or DB token). Multi-step protocol: send `initialize` first, then `notifications/initialized`, then tool calls. Include the `mcp-session-id` header returned from `initialize` in subsequent requests.",
+        "operationId": "mcpRequest",
+        "security": [
+          { "AdminToken": [] },
+          { "DbToken": [] }
+        ],
+        "parameters": [
+          {
+            "name": "mcp-session-id",
+            "in": "header",
+            "required": false,
+            "description": "Session ID returned by the server after initialize. Include in all follow-up requests.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "jsonrpc": { "type": "string", "enum": ["2.0"] },
+                  "id":      { "type": ["integer", "null"] },
+                  "method":  { "type": "string", "example": "tools/call" },
+                  "params":  { "type": "object" }
+                },
+                "required": ["jsonrpc", "method"]
+              },
+              "examples": {
+                "initialize": {
+                  "summary": "Step 1 – initialize session",
+                  "value": {
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {
+                      "protocolVersion": "2024-11-05",
+                      "capabilities": {},
+                      "clientInfo": { "name": "my-client", "version": "1.0" }
+                    }
+                  }
+                },
+                "initialized": {
+                  "summary": "Step 2 – confirm initialization (fire-and-forget)",
+                  "value": {
+                    "jsonrpc": "2.0", "method": "notifications/initialized", "params": {}
+                  }
+                },
+                "list_tools": {
+                  "summary": "List available tools",
+                  "value": { "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }
+                },
+                "call_list_tables": {
+                  "summary": "Call list_tables tool",
+                  "value": {
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": { "name": "list_tables", "arguments": { "schema": "public" } }
+                  }
+                },
+                "call_query": {
+                  "summary": "Call query tool",
+                  "value": {
+                    "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {
+                      "name": "query",
+                      "arguments": { "sql": "SELECT id, name FROM users WHERE id = $1", "params": [1] }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MCP JSON-RPC response (may be plain JSON or text/event-stream SSE)",
+            "headers": {
+              "mcp-session-id": {
+                "description": "Session ID — include in subsequent requests",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              },
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "401": { "description": "Missing or invalid Bearer token" },
+          "403": { "description": "Token not authorized for this endpoint" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
+        }
+      }
+    },
+    "/admin/tokens": {
+      "get": {
+        "summary": "List all tokens",
+        "operationId": "listTokens",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "All tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tokens": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Token" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Missing or invalid admin token" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
+        }
+      },
+      "post": {
+        "summary": "Create a new token",
+        "description": "The plaintext token value is returned once. Only the SHA-256 hash is stored.",
+        "operationId": "createToken",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "claude-desktop" }
+                },
+                "required": ["name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token created — plaintext value shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Token" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "token": {
+                          "type": "string",
+                          "description": "Plaintext token — store securely, not shown again",
+                          "example": "a3f8...64-hex-chars"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "description": "name is missing or blank", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Missing or invalid admin token" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
+        }
+      }
+    },
+    "/admin/tokens/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "integer" },
+          "example": 1
+        }
+      ],
+      "patch": {
+        "summary": "Rename or enable/disable a token",
+        "operationId": "updateToken",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name":   { "type": "string",  "example": "new-name" },
+                  "active": { "type": "boolean", "example": false }
+                },
+                "minProperties": 1
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id":     { "type": "integer" },
+                    "name":   { "type": "string" },
+                    "active": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "No valid fields provided", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Missing or invalid admin token" },
+          "404": { "description": "Token not found",              "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
+        }
+      },
+      "delete": {
+        "summary": "Deactivate a token",
+        "description": "Sets active=false. The token remains in the database.",
+        "operationId": "deleteToken",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Token deactivated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "id": { "type": "integer", "example": 1 }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Missing or invalid admin token" },
+          "404": { "description": "Token not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
+        }
+      }
+    }
+  }
+}
