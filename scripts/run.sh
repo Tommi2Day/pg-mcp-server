@@ -17,6 +17,7 @@ PG_DATABASE=${PGDATABASE:-postgres}
 PG_USER=${PGUSER:-postgres}
 PG_PASSWORD=${PGPASSWORD:-}
 MCP_PORT=${MCP_PORT:-3000}
+docker pull tommi2day/pg-mcp-server:latest
 docker run -d --name $NAME \
   -p $MCP_PORT:3000 \
   -e TRANSPORT=http \
