@@ -3,8 +3,9 @@ NAME=${1:-pg-mcp-server}
 if [ -r .env ]; then
   . .env
 fi
-if [ "$(docker ps -q -f name=$NAME)" ]; then
+if [ "$(docker ps -a -q -f name=$NAME)" ]; then
   docker stop $NAME
+  sleep 10
   docker rm $NAME
 fi
 if [ ! -r ./auth_token ]; then
@@ -27,5 +28,5 @@ docker run -d --name $NAME \
   -e PG_DATABASE=$PG_DATABASE \
   -e PG_USER=$PG_USER \
   -e PG_PASSWORD=$PG_PASSWORD \
-  -e PG_SSL=prefer \
+  -e PG_SSL=${PG_SSL:-false} \
   tommi2day/pg-mcp-server:latest
