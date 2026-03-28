@@ -19,7 +19,7 @@ fi
 TOKEN="${1:-}"
 SCHEMA="${2:-public}"
 BASE_URL="${MCP_URL:-http://localhost:3000}"
-CLIENT_IP="${X_REAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+CLIENT_IP="${X_REAL_IP:-$(hostname -i 2>/dev/null | awk '{print $1}')}"
 
 die() { echo "❌ $*" >&2; exit 1; }
 ok()  { echo "✅ $*"; }
