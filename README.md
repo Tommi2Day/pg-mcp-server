@@ -120,13 +120,15 @@ node index.js
 `scripts/run.sh` builds and starts the container in one step:
 
 ```bash
-# Optionally set PostgreSQL connection via .env in the project root
+# Optionally configure the PostgreSQL connection via .env in the project root
 cp .env.example .env
 # edit .env: set PG_HOST, PG_DATABASE, PG_USER, PG_PASSWORD, ...
 
 ./scripts/run.sh              # start as "pg-mcp-server"
 ./scripts/run.sh my-name      # start with a custom container name
 ```
+
+`run.sh` reads PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD / PG_SSL from `.env` and auto-generates `AUTH_TOKEN` on first run (saved to `./auth_token`).
 
 - Stops and removes any existing container with the same name
 - Auto-generates `AUTH_TOKEN` on first run and saves it to `./auth_token`
@@ -155,14 +157,30 @@ docker run -d --name pg-mcp-server \
 
 ### With docker-compose (including test database)
 
-Edit `docker-compose.yml` and start:
+Copy the example env file, edit it, then start:
 
 ```bash
+cp .env.example .env
+# edit .env: set AUTH_TOKEN, PG_PASSWORD, etc.
+
 docker compose up -d
 docker compose logs -f pg-mcp-server
 ```
 
-The `docker-compose.yml` includes a `postgres-test` container (port `5433`) that must be healthy before `pg-mcp-server` starts (`depends_on: condition: service_healthy`).
+`docker compose` automatically reads `.env` from the project root. The `docker-compose.yml` includes a `postgres-test` container (port `5433`) that must be healthy before `pg-mcp-server` starts (`depends_on: condition: service_healthy`).
+
+Key variables in `.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_TOKEN` | _(empty)_ | Admin bearer token; leave empty to disable auth |
+| `MCP_PORT` | `3000` | Host port for the MCP server |
+| `PG_HOST` | `postgres-test` | PostgreSQL host (use `host.docker.internal` for a local DB outside Docker) |
+| `PG_DATABASE` | `testdb` | Database name |
+| `PG_USER` | `postgres` | Database user |
+| `PG_PASSWORD` | `postgres` | Database password |
+| `PG_SSL` | `false` | `false` / `true` / `verify` |
+| `TLS_ENABLED` | `false` | `true` to enable HTTPS |
 
 ### Enable TLS (optional)
 
@@ -177,6 +195,8 @@ volumes:
 On startup:
 - `/certs` contains a certificate → it is used (permissions are adjusted automatically)
 - `/certs` is empty → a self-signed certificate is generated automatically
+
+Once running, open `http://localhost:3000/admin` to manage tokens via the web UI.
 
 ### Connect Claude Desktop / `.mcp.json`
 
@@ -316,12 +336,24 @@ helm uninstall pg-mcp -n mcp
 ## Authentication
 
 `AUTH_TOKEN` (env var) is the **admin token** — it grants access to `/mcp` and the token management API.
-Additional **file tokens** can be created via the API; they only have access to `/mcp`.
+Additional **file tokens** can be created via the admin UI or API; they only have access to `/mcp`.
 Token values are stored as SHA-256 hashes in a local JSON file (`TOKENS_FILE`); plaintext is shown only once at creation and never stored.
 
 Each file token can optionally have its own PostgreSQL connection. When a token has no custom connection, it uses the server's default connection (`PG_HOST` / `PG_DATABASE` / … env vars).
 
-No `AUTH_TOKEN` set → auth is completely disabled (local/dev only).
+No `AUTH_TOKEN` set → auth is completely disabled (local/dev only). The admin UI still works but does not require a token.
+
+### Admin UI
+
+Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage tokens without using the command line or curl.
+
+- **Login**: enter the server URL and the `AUTH_TOKEN` value. Leave the token field empty if auth is disabled.
+- **Token list**: see all tokens with status (active/inactive), connection info, and last-used timestamp.
+- **Create token**: enter a name and optionally configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
+- **Edit token**: rename a token, toggle its active state, or update its database connection.
+- **Deactivate token**: revokes access immediately; the record is kept in the store with `active = false`.
+
+The session is stored in `sessionStorage` (cleared when the browser tab is closed).
 
 ### Token store
 
@@ -527,6 +559,7 @@ All scripts require only Docker — no local Node.js needed.
 |------|------|-------------|
 | `POST /mcp` | Admin or file token | MCP Streamable-HTTP (uses token's connection if set) |
 | `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
+| `GET /admin` | none | Web-based token administration UI |
 | `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
 | `POST /admin/tokens` | Admin token only | Create token; optional `connection` object |
 | `PATCH /admin/tokens/:id` | Admin token only | Update `name`, `active`, and/or `connection` |
