@@ -12,6 +12,8 @@
 #   ./token.sh enable  <id>
 #   ./token.sh disable <id>
 #   ./token.sh rename  <id> <new-name>
+#   ./token.sh setconn <id> '<json>'   # set per-token DB connection
+#   ./token.sh clearconn <id>          # reset to default admin connection
 set -eo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -103,8 +105,21 @@ cmd_add() {
   [ -n "${1:-}" ] || die "Usage: ./token.sh add <name>"
   local name="$1"
 
+  # Optional per-token connection from env vars (PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD, PG_SSL)
+  local conn_json=""
+  if [ -n "${PG_HOST:-}" ]; then
+    local ssl="${PG_SSL:-false}"
+    local port="${PG_PORT:-5432}"
+    local db="${PG_DATABASE:-postgres}"
+    local user="${PG_USER:-postgres}"
+    local pass="${PG_PASSWORD:-}"
+    conn_json=$(printf ',
+  "connection": {"host": "%s", "port": %s, "database": "%s", "user": "%s", "password": "%s", "ssl": "%s"}' \
+      "$PG_HOST" "$port" "$db" "$user" "$pass" "$ssl")
+  fi
+
   local raw body
-  raw=$(api POST "$API" -d "{\"name\":\"${name}\"}")
+  raw=$(api POST "$API" -d "{\"name\":\"${name}\"${conn_json}}")
   body=$(check_response "$raw")
 
   local token
@@ -122,6 +137,10 @@ cmd_add() {
   echo "   .mcp.json entry:"
   echo "   \"headers\": { \"Authorization\": \"Bearer ${token}\" }"
   echo ""
+  if [ -n "$conn_json" ]; then
+    echo "   Connection: ${PG_HOST}:${PG_PORT:-5432}/${PG_DATABASE:-postgres} (user: ${PG_USER:-postgres})"
+    echo ""
+  fi
 }
 
 cmd_delete() {
@@ -169,6 +188,30 @@ cmd_rename() {
   echo "✅ Token ${id} renamed to \"${name}\"."
 }
 
+cmd_setconn() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./token.sh setconn <id> '<json>'"
+  [ -n "${2:-}" ] || die "Usage: ./token.sh setconn <id> '<json>'"
+  local id="$1" json="$2"
+
+  local raw body
+  raw=$(api PATCH "${API}/${id}" -d "{\"connection\":${json}}")
+  body=$(check_response "$raw")
+  echo "✅ Token ${id} connection updated."
+  pretty "$body"
+}
+
+cmd_clearconn() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./token.sh clearconn <id>"
+  local id="$1"
+
+  local raw body
+  raw=$(api PATCH "${API}/${id}" -d '{"connection":null}')
+  body=$(check_response "$raw")
+  echo "✅ Token ${id} connection cleared (uses default admin connection)."
+}
+
 cmd_help() {
   cat <<EOF
 
@@ -181,10 +224,15 @@ pg-mcp-server token management
   Commands:
     list                    List all tokens
     add    <name>           Create a new token
+                            Set PG_HOST/PG_PORT/PG_DATABASE/PG_USER/PG_PASSWORD
+                            to attach a custom DB connection to the token
     delete <id>             Permanently deactivate a token
     enable <id>             Re-enable a token
     disable <id>            Temporarily disable a token
     rename <id> <name>      Rename a token
+    setconn <id> '<json>'   Set a custom DB connection for a token
+                            JSON: {"host":"h","port":5432,"database":"d","user":"u","password":"p","ssl":"false"}
+    clearconn <id>          Clear per-token connection (falls back to admin DB)
 
   Examples:
     export AUTH_TOKEN=<admin-token>
@@ -192,17 +240,29 @@ pg-mcp-server token management
     ./token.sh add "claude-desktop"
     ./token.sh delete 3
 
+    # Create token with custom DB connection
+    PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=myuser PG_PASSWORD=secret \\
+      ./token.sh add "my-client"
+
+    # Update connection on existing token
+    ./token.sh setconn 2 '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
+
+    # Reset to default admin connection
+    ./token.sh clearconn 2
+
 EOF
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 case "${1:-help}" in
-  list)    cmd_list ;;
-  add)     cmd_add    "${2:-}" ;;
-  delete)  cmd_delete "${2:-}" ;;
-  enable)  cmd_enable  "${2:-}" ;;
-  disable) cmd_disable "${2:-}" ;;
-  rename)  cmd_rename  "${2:-}" "${3:-}" ;;
+  list)      cmd_list ;;
+  add)       cmd_add      "${2:-}" ;;
+  delete)    cmd_delete   "${2:-}" ;;
+  enable)    cmd_enable   "${2:-}" ;;
+  disable)   cmd_disable  "${2:-}" ;;
+  rename)    cmd_rename   "${2:-}" "${3:-}" ;;
+  setconn)   cmd_setconn  "${2:-}" "${3:-}" ;;
+  clearconn) cmd_clearconn "${2:-}" ;;
   help|--help|-h) cmd_help ;;
   *) die "Unknown command: ${1}\nHelp: ./token.sh help" ;;
 esac

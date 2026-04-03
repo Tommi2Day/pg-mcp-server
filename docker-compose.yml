@@ -4,11 +4,11 @@ services:
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: testdb
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+      POSTGRES_DB: ${PG_DATABASE:-testdb}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d testdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DATABASE:-testdb}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,7 +19,7 @@ services:
     build: .
     image: pg-mcp-server:latest
     ports:
-      - "3000:3000"
+      - "${MCP_PORT:-3000}:3000"
     depends_on:
       postgres-test:
         condition: service_healthy
@@ -27,32 +27,36 @@ services:
       TRANSPORT: http
       PORT: 3000
 
-      # ── TLS (HTTP) ────────────────────────────────────────────────────────
-      # false → plain HTTP (Standard)
-      # true  → HTTPS (certs Volume muss gemountet sein)
-      TLS_ENABLED: "false"
+      # ── TLS (HTTPS) ───────────────────────────────────────────────────────
+      # false → plain HTTP (default)
+      # true  → HTTPS (requires a cert volume mounted at /certs)
+      TLS_ENABLED: "${TLS_ENABLED:-false}"
       TLS_CERT_FILE: /certs/tls.crt
       TLS_KEY_FILE:  /certs/tls.key
       # TLS_CA_FILE: /certs/client-ca.crt
-      # TLS_SAN: "DNS:mein-host.local,IP:192.168.1.10"
+      # TLS_SAN: "${TLS_SAN:-}"
 
-      # ── Authentifizierung ─────────────────────────────────────────────────
-      # Bearer-Token für /mcp Endpoint (leer = Auth deaktiviert)
-      # Erzeugen z.B. mit: openssl rand -hex 32
-      AUTH_TOKEN: ""
+      # ── Authentication ────────────────────────────────────────────────────
+      # Bearer token for /mcp and /admin/tokens (empty = auth disabled)
+      # Generate with: openssl rand -hex 32
+      AUTH_TOKEN: "${AUTH_TOKEN:-}"
 
-      # ── PostgreSQL ────────────────────────────────────────────────────────
-      PG_HOST: "postgres-test"
-      PG_PORT: "5432"
-      PG_DATABASE: "testdb"
-      PG_USER: "postgres"
-      PG_PASSWORD: "postgres"
+      # ── Token store ───────────────────────────────────────────────────────
+      TOKENS_FILE: /data/tokens.json
+
+      # ── PostgreSQL (default / admin connection) ───────────────────────────
+      PG_HOST: "${PG_HOST:-postgres-test}"
+      PG_PORT: "${PG_PORT:-5432}"
+      PG_DATABASE: "${PG_DATABASE:-testdb}"
+      PG_USER: "${PG_USER:-postgres}"
+      PG_PASSWORD: "${PG_PASSWORD:-postgres}"
       # PG_SSL: false | true | verify
-      PG_SSL: "false"
+      PG_SSL: "${PG_SSL:-false}"
       # PG_SSL_CA_FILE: /certs/pg-ca.crt
 
-    # volumes:
-    #   - ./certs:/certs:ro   # einkommentieren wenn TLS_ENABLED=true
+    volumes:
+      - mcp-data:/data               # persist token store
+      # - ./certs:/certs:ro          # uncomment when TLS_ENABLED=true
 
     networks:
       - mcp-net
@@ -62,3 +66,6 @@ services:
 networks:
   mcp-net:
     driver: bridge
+
+volumes:
+  mcp-data:

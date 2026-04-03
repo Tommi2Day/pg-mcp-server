@@ -23,17 +23,18 @@ Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
+| `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
 | `TLS_CERT_FILE` | `/certs/tls.crt` | Server certificate (PEM) |
 | `TLS_KEY_FILE` | `/certs/tls.key` | Server key (PEM) |
 | `TLS_CA_FILE` | – | Client CA for mTLS (optional) |
 | `TLS_SAN` | – | Additional SANs for self-signed cert, e.g. `DNS:myhost,IP:1.2.3.4` |
-| `PG_HOST` | `localhost` | PostgreSQL host |
-| `PG_PORT` | `5432` | PostgreSQL port |
-| `PG_DATABASE` | `postgres` | Database name |
-| `PG_USER` | `postgres` | Username |
-| `PG_PASSWORD` | – | Password |
-| `PG_SSL` | `false` | `false` / `true` / `verify` |
+| `PG_HOST` | `localhost` | Default PostgreSQL host (used when a token has no custom connection) |
+| `PG_PORT` | `5432` | Default PostgreSQL port |
+| `PG_DATABASE` | `postgres` | Default database name |
+| `PG_USER` | `postgres` | Default username |
+| `PG_PASSWORD` | – | Default password |
+| `PG_SSL` | `false` | Default SSL mode: `false` / `true` / `verify` |
 | `PG_SSL_CA_FILE` | – | CA for PostgreSQL certificate (when `PG_SSL=verify`) |
 | `PG_SSL_CERT_FILE` | – | Client certificate for PostgreSQL mTLS |
 | `PG_SSL_KEY_FILE` | – | Client key for PostgreSQL mTLS |
@@ -63,10 +64,12 @@ docker run -d --name pg-mcp-server \
   --add-host=host.docker.internal:host-gateway \
   -e TRANSPORT=http \
   -e AUTH_TOKEN=$(openssl rand -hex 32) \
+  -e TOKENS_FILE=/data/tokens.json \
   -e PG_HOST=host.docker.internal \
   -e PG_DATABASE=mydb \
   -e PG_USER=user \
   -e PG_PASSWORD=password \
+  -v pg-mcp-data:/data \
   tommi2day/pg-mcp-server:latest
 ```
 
@@ -141,10 +144,12 @@ docker run -d --name pg-mcp-server \
   --add-host=host.docker.internal:host-gateway \
   -e TRANSPORT=http \
   -e AUTH_TOKEN=$(openssl rand -hex 32) \
+  -e TOKENS_FILE=/data/tokens.json \
   -e PG_HOST=host.docker.internal \
   -e PG_DATABASE=mydb \
   -e PG_USER=user \
   -e PG_PASSWORD=password \
+  -v pg-mcp-data:/data \
   pg-mcp-server
 ```
 
@@ -252,6 +257,11 @@ image:
 
 replicaCount: 2
 
+persistence:
+  enabled: true
+  size: 50Mi
+  storageClass: "standard"
+
 auth:
   existingSecret: "my-auth-secret"
 
@@ -306,10 +316,17 @@ helm uninstall pg-mcp -n mcp
 ## Authentication
 
 `AUTH_TOKEN` (env var) is the **admin token** — it grants access to `/mcp` and the token management API.
-Additional **DB tokens** can be created via the API; they only have access to `/mcp`.
-Token values are stored as SHA-256 hashes (plaintext is never stored in the database).
+Additional **file tokens** can be created via the API; they only have access to `/mcp`.
+Token values are stored as SHA-256 hashes in a local JSON file (`TOKENS_FILE`); plaintext is shown only once at creation and never stored.
+
+Each file token can optionally have its own PostgreSQL connection. When a token has no custom connection, it uses the server's default connection (`PG_HOST` / `PG_DATABASE` / … env vars).
 
 No `AUTH_TOKEN` set → auth is completely disabled (local/dev only).
+
+### Token store
+
+Tokens are persisted in a JSON file (default `./tokens.json`, configurable via `TOKENS_FILE`).  
+**Mount a volume** at the file's directory so tokens survive container restarts — see the Docker and Helm sections above.
 
 ### Manage tokens with `token.sh`
 
@@ -333,12 +350,19 @@ EOF
 > ```
 
 ```bash
-./scripts/token.sh list                     # list all tokens
+./scripts/token.sh list                     # list all tokens (with connection info)
 ./scripts/token.sh add "claude-desktop"     # create new token (plaintext shown once)
 ./scripts/token.sh delete <id>              # deactivate token
 ./scripts/token.sh disable <id>             # temporarily block
 ./scripts/token.sh enable  <id>             # re-enable
 ./scripts/token.sh rename  <id> <new-name>  # rename
+
+# Per-token database connection
+PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=u PG_PASSWORD=p \
+  ./scripts/token.sh add "mydb-client"      # create token with custom connection
+
+./scripts/token.sh setconn <id> '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
+./scripts/token.sh clearconn <id>           # reset to default admin connection
 ```
 
 ### Validate a token with `test_token.sh`
@@ -357,25 +381,53 @@ The script sends an `X-Real-IP` header so the server logs the real client IP. Th
 ### Manage tokens with curl
 
 ```bash
-# Create token
+# List tokens (includes connection info; token_hash is never returned)
+curl http://localhost:3000/admin/tokens \
+  -H "Authorization: Bearer $AUTH_TOKEN"
+
+# Create token (default connection)
 curl -X POST http://localhost:3000/admin/tokens \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "claude-desktop"}'
 
-# List tokens
-curl http://localhost:3000/admin/tokens \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+# Create token with a custom DB connection
+curl -X POST http://localhost:3000/admin/tokens \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mydb-client",
+    "connection": {
+      "host": "db.example.com",
+      "port": 5432,
+      "database": "mydb",
+      "user": "myuser",
+      "password": "secret",
+      "ssl": "false"
+    }
+  }'
 
-# Deactivate token
-curl -X DELETE http://localhost:3000/admin/tokens/<id> \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+# Set or update the connection on an existing token
+curl -X PATCH http://localhost:3000/admin/tokens/<id> \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"connection": {"host": "db.example.com", "database": "mydb", "user": "u", "password": "p"}}'
+
+# Clear per-token connection (fall back to default admin connection)
+curl -X PATCH http://localhost:3000/admin/tokens/<id> \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"connection": null}'
 
 # Rename / re-enable token
 curl -X PATCH http://localhost:3000/admin/tokens/<id> \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "new-name", "active": true}'
+
+# Deactivate token
+curl -X DELETE http://localhost:3000/admin/tokens/<id> \
+  -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
 ### Connection logging
@@ -387,25 +439,49 @@ Every authenticated request is logged to stderr with a timestamp, the token name
 [2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
 ```
 
-- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the DB token's name; `params` is omitted for tools with no arguments
+- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's name; `params` is omitted for tools with no arguments
 - `[ADMIN]` — admin API requests; always `token="admin"`
 
 The client IP is resolved in order: `x-real-ip` header → first entry of `x-forwarded-for` → TCP socket address. When running Docker without a reverse proxy, the socket address is the Docker bridge IP — deploy behind nginx or Traefik to log the real client IP.
 
-### Database schema
+### Token file format
 
-The table is created automatically on startup:
+The token store is a plain JSON file. The server reads and writes it automatically — do not edit it while the server is running.
 
-```sql
-CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
-  id           SERIAL PRIMARY KEY,
-  name         TEXT        NOT NULL,
-  token_hash   TEXT        NOT NULL UNIQUE,  -- SHA-256, plaintext never stored
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_used_at TIMESTAMPTZ,
-  active       BOOLEAN     NOT NULL DEFAULT true
-);
+```json
+{
+  "tokens": [
+    {
+      "id": 1,
+      "name": "claude-desktop",
+      "token_hash": "<sha256-hex>",
+      "created_at": "2026-04-03T10:00:00.000Z",
+      "last_used_at": "2026-04-03T12:34:56.789Z",
+      "active": true,
+      "connection": null
+    },
+    {
+      "id": 2,
+      "name": "mydb-client",
+      "token_hash": "<sha256-hex>",
+      "created_at": "2026-04-03T10:05:00.000Z",
+      "last_used_at": null,
+      "active": true,
+      "connection": {
+        "host": "db.example.com",
+        "port": 5432,
+        "database": "mydb",
+        "user": "myuser",
+        "password": "secret",
+        "ssl": "false"
+      }
+    }
+  ],
+  "next_id": 3
+}
 ```
+
+`connection: null` means the token uses the server's default PostgreSQL connection. The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored.
 
 ---
 
@@ -449,11 +525,11 @@ All scripts require only Docker — no local Node.js needed.
 
 | Path | Auth | Description |
 |------|------|-------------|
-| `POST /mcp` | Admin or DB token | MCP Streamable-HTTP |
+| `POST /mcp` | Admin or file token | MCP Streamable-HTTP (uses token's connection if set) |
 | `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
-| `GET /admin/tokens` | Admin token only | List tokens |
-| `POST /admin/tokens` | Admin token only | Create token |
-| `PATCH /admin/tokens/:id` | Admin token only | Rename / enable / disable token |
+| `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
+| `POST /admin/tokens` | Admin token only | Create token; optional `connection` object |
+| `PATCH /admin/tokens/:id` | Admin token only | Update `name`, `active`, and/or `connection` |
 | `DELETE /admin/tokens/:id` | Admin token only | Deactivate token |
 
 A full OpenAPI 3.1 specification is available in [`openapi.json`](openapi.json).

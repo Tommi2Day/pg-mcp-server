@@ -20,6 +20,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import pg from "pg";
+import fs from "node:fs";
 import https from "node:https";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,34 @@ if (isMain) {
     connectionTimeoutMillis: 10000,
     max: 5,
   });
+}
+
+// ── Per-token pool cache ──────────────────────────────────────────────────────
+const poolCache = new Map(); // JSON key → Pool instance
+
+/** Build a simple ssl config from a token connection's ssl field (no file loading). */
+function sslFromValue(val) {
+  if (!val || val === "false" || val === false || val === "0" || val === "no" || val === "prefer") return false;
+  return { rejectUnauthorized: false };
+}
+
+/** Return the pool for the given connection config, or the admin pool if null. */
+export function getPool(connection) {
+  if (!connection) return pool;
+  const key = JSON.stringify(connection);
+  if (!poolCache.has(key)) {
+    poolCache.set(key, new Pool({
+      host:     connection.host     || process.env.PG_HOST     || "localhost",
+      port:     parseInt(connection.port     || process.env.PG_PORT     || "5432"),
+      database: connection.database || process.env.PG_DATABASE || "postgres",
+      user:     connection.user     || process.env.PG_USER     || "postgres",
+      password: connection.password || process.env.PG_PASSWORD || "",
+      ssl:      sslFromValue(connection.ssl),
+      connectionTimeoutMillis: 10000,
+      max: 5,
+    }));
+  }
+  return poolCache.get(key);
 }
 
 // ── MCP server factory ────────────────────────────────────────────────────────
@@ -197,25 +226,22 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
   return server;
 }
 
-// ── Token table ───────────────────────────────────────────────────────────────
-export async function initTokenTable(dbPool) {
-  await dbPool.query(`
-    CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
-      id           SERIAL PRIMARY KEY,
-      name         TEXT        NOT NULL,
-      token_hash   TEXT        NOT NULL UNIQUE,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-      last_used_at TIMESTAMPTZ,
-      active       BOOLEAN     NOT NULL DEFAULT true
-    )
-  `);
-}
-
 // ── Session store (stateful HTTP sessions) ────────────────────────────────────
 const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
 
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
 export async function handleRequest(req, res) {
+  if ((req.url === "/admin" || req.url === "/admin/") && req.method === "GET") {
+    try {
+      const html = fs.readFileSync(new URL("./admin.html", import.meta.url));
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html);
+    } catch {
+      res.writeHead(404);
+      res.end("Admin UI not found");
+    }
+    return;
+  }
   if (req.url === "/health" && req.method === "GET") {
     const tlsEnabled = process.env.TLS_ENABLED !== "false";
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -223,11 +249,11 @@ export async function handleRequest(req, res) {
     return;
   }
   if (req.url?.startsWith("/admin/tokens")) {
-    await handleAdminRequest(pool, req, res);
+    await handleAdminRequest(req, res);
     return;
   }
   if (req.url === "/mcp") {
-    const auth = await checkAuth(pool, req, res);
+    const auth = await checkAuth(req, res);
     if (!auth.ok) return;
 
     const sessionId = req.headers["mcp-session-id"];
@@ -235,7 +261,8 @@ export async function handleRequest(req, res) {
       // Resume existing session
       await sessions.get(sessionId).handleRequest(req, res);
     } else {
-      // New session
+      // New session — resolve pool for this token
+      const dbPool = getPool(auth.connection);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => { sessions.set(id, transport); },
@@ -244,7 +271,7 @@ export async function handleRequest(req, res) {
       const clientIp = req.headers["x-real-ip"]
         || req.headers["x-forwarded-for"]?.split(",")[0].trim()
         || req.socket?.remoteAddress || "-";
-      const server = createMcpServer(pool, auth.name, clientIp);
+      const server = createMcpServer(dbPool, auth.name, clientIp);
       await server.connect(transport);
       await transport.handleRequest(req, res);
     }
@@ -261,9 +288,8 @@ if (isMain) {
   const PORT        = parseInt(process.env.PORT || "3000");
 
   if (TRANSPORT === "http") {
-    await initTokenTable(pool);
     const authInfo = getAuthToken()
-      ? "🔑 Bearer token required (env + DB tokens)"
+      ? "🔑 Bearer token required (env + file tokens)"
       : "⚠️  disabled (AUTH_TOKEN not set)";
 
     if (TLS_ENABLED) {
@@ -285,6 +311,7 @@ if (isMain) {
       https.createServer(tlsOptions, handleRequest).listen(PORT, () => {
         console.error(`PostgreSQL MCP Server (HTTPS) listening on port ${PORT}`);
         console.error(`  MCP endpoint : https://0.0.0.0:${PORT}/mcp`);
+        console.error(`  Admin UI     : https://0.0.0.0:${PORT}/admin`);
         console.error(`  Admin API    : https://0.0.0.0:${PORT}/admin/tokens`);
         console.error(`  Health check : https://0.0.0.0:${PORT}/health`);
         console.error(`  Auth         : ${authInfo}`);
@@ -294,6 +321,7 @@ if (isMain) {
       http.createServer(handleRequest).listen(PORT, () => {
         console.error(`PostgreSQL MCP Server (HTTP) listening on port ${PORT}`);
         console.error(`  MCP endpoint : http://0.0.0.0:${PORT}/mcp`);
+        console.error(`  Admin UI     : http://0.0.0.0:${PORT}/admin`);
         console.error(`  Admin API    : http://0.0.0.0:${PORT}/admin/tokens`);
         console.error(`  Health check : http://0.0.0.0:${PORT}/health`);
         console.error(`  Auth         : ${authInfo}`);

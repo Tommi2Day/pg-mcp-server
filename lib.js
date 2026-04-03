@@ -49,6 +49,26 @@ export function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+// ── Token store (file-based) ──────────────────────────────────────────────────
+export function getTokensFile() {
+  return process.env.TOKENS_FILE || "./tokens.json";
+}
+
+export function loadTokenStore() {
+  const file = getTokensFile();
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    if (e.code === "ENOENT") return { tokens: [], next_id: 1 };
+    throw e;
+  }
+}
+
+export function saveTokenStore(data) {
+  const file = getTokensFile();
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 export function extractBearer(req) {
   const h = (req.headers && req.headers["authorization"]) || "";
@@ -74,39 +94,36 @@ export function readBody(req) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-/** Admin-only auth — only the AUTH_TOKEN env var is accepted. */
+/** Admin-only auth — only the AUTH_TOKEN env var is accepted.
+ *  When AUTH_TOKEN is not set, auth is disabled and all requests are allowed. */
 export function checkAdminAuth(req, res) {
   const authToken = getAuthToken();
-  if (!authToken) {
-    res.writeHead(503, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "AUTH_TOKEN not configured – admin API disabled" }));
-    return false;
-  }
+  if (!authToken) return true;
   if (extractBearer(req) !== authToken) { send401(res); return false; }
   return true;
 }
 
-/** MCP auth — accepts AUTH_TOKEN env var OR any active DB token.
- *  Returns { ok: true, name: string } on success, { ok: false } on failure. */
-export async function checkAuth(pool, req, res) {
+/** MCP auth — accepts AUTH_TOKEN env var OR any active file token.
+ *  Returns { ok: true, name: string, connection: object|null } on success,
+ *  { ok: false } on failure. */
+export async function checkAuth(req, res) {
   const authToken = getAuthToken();
-  if (!authToken) return { ok: true, name: "anonymous" }; // auth disabled
+  if (!authToken) return { ok: true, name: "anonymous", connection: null };
   const token = extractBearer(req);
   if (!token) { send401(res); return { ok: false }; }
-  if (token === authToken) return { ok: true, name: "admin" };
-  // DB token check
+  if (token === authToken) return { ok: true, name: "admin", connection: null };
+  // File token check
   const hash = hashToken(token);
-  const { rows } = await pool.query(
-    "SELECT id, name FROM mcp_auth_tokens WHERE token_hash = $1 AND active = true",
-    [hash]
-  );
-  if (!rows.length) { send401(res); return { ok: false }; }
-  pool.query("UPDATE mcp_auth_tokens SET last_used_at = now() WHERE id = $1", [rows[0].id]).catch(() => {});
-  return { ok: true, name: rows[0].name };
+  const store = loadTokenStore();
+  const entry = store.tokens.find(t => t.token_hash === hash && t.active);
+  if (!entry) { send401(res); return { ok: false }; }
+  entry.last_used_at = new Date().toISOString();
+  try { saveTokenStore(store); } catch { /* best-effort */ }
+  return { ok: true, name: entry.name, connection: entry.connection || null };
 }
 
 // ── Admin: token management (/admin/tokens[/:id]) ────────────────────────────
-export async function handleAdminRequest(pool, req, res) {
+export async function handleAdminRequest(req, res) {
   if (!checkAdminAuth(req, res)) return;
 
   const pathname = new URL(req.url, "http://x").pathname;
@@ -119,73 +136,91 @@ export async function handleAdminRequest(pool, req, res) {
   console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}"`);
 
   try {
-    // GET /admin/tokens – list all tokens
+    // GET /admin/tokens – list all tokens (token_hash excluded)
     if (req.method === "GET" && !id) {
-      const { rows } = await pool.query(
-        "SELECT id, name, created_at, last_used_at, active FROM mcp_auth_tokens ORDER BY created_at DESC"
-      );
+      const { tokens } = loadTokenStore();
+      const safe = tokens.map(({ token_hash, ...rest }) => rest);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ tokens: rows }));
+      res.end(JSON.stringify({ tokens: safe }));
       return;
     }
 
     // POST /admin/tokens – create new token
     if (req.method === "POST" && !id) {
       const body = await readBody(req);
-      const { name } = JSON.parse(body || "{}");
+      const { name, connection } = JSON.parse(body || "{}");
       if (!name || typeof name !== "string" || !name.trim()) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: '"name" is required' }));
         return;
       }
+      if (connection !== undefined && (typeof connection !== "object" || Array.isArray(connection))) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: '"connection" must be an object or null' }));
+        return;
+      }
       const token = crypto.randomBytes(32).toString("hex");
-      const { rows } = await pool.query(
-        "INSERT INTO mcp_auth_tokens (name, token_hash) VALUES ($1, $2) RETURNING id, name, created_at",
-        [name.trim(), hashToken(token)]
-      );
+      const store = loadTokenStore();
+      const entry = {
+        id:           store.next_id++,
+        name:         name.trim(),
+        token_hash:   hashToken(token),
+        created_at:   new Date().toISOString(),
+        last_used_at: null,
+        active:       true,
+        connection:   connection || null,
+      };
+      store.tokens.push(entry);
+      saveTokenStore(store);
+      const { token_hash, ...safe } = entry;
       res.writeHead(201, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ...rows[0], token })); // plaintext returned once only
+      res.end(JSON.stringify({ ...safe, token })); // plaintext returned once only
       return;
     }
 
-    // PATCH /admin/tokens/:id – update name or active
+    // PATCH /admin/tokens/:id – update name, active and/or connection
     if (req.method === "PATCH" && id) {
       const body = await readBody(req);
       const updates = JSON.parse(body || "{}");
-      const fields = [], values = [];
-      if (updates.name   !== undefined) fields.push(`name = $${values.push(updates.name)}`);
-      if (updates.active !== undefined) fields.push(`active = $${values.push(!!updates.active)}`);
-      if (!fields.length) {
+      if (updates.name === undefined && updates.active === undefined && updates.connection === undefined) {
         res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "No valid fields (name, active)" }));
+        res.end(JSON.stringify({ error: "No valid fields (name, active, connection)" }));
         return;
       }
-      values.push(id);
-      const { rows } = await pool.query(
-        `UPDATE mcp_auth_tokens SET ${fields.join(", ")} WHERE id = $${values.length} RETURNING id, name, active`,
-        values
-      );
-      if (!rows.length) {
+      if (updates.connection !== undefined && updates.connection !== null
+          && (typeof updates.connection !== "object" || Array.isArray(updates.connection))) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: '"connection" must be an object or null' }));
+        return;
+      }
+      const store = loadTokenStore();
+      const entry = store.tokens.find(t => t.id === id);
+      if (!entry) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not found" }));
         return;
       }
+      if (updates.name     !== undefined) entry.name       = updates.name;
+      if (updates.active   !== undefined) entry.active     = !!updates.active;
+      if (updates.connection !== undefined) entry.connection = updates.connection || null;
+      saveTokenStore(store);
+      const { token_hash, ...safe } = entry;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(rows[0]));
+      res.end(JSON.stringify(safe));
       return;
     }
 
     // DELETE /admin/tokens/:id – deactivate token
     if (req.method === "DELETE" && id) {
-      const { rows } = await pool.query(
-        "UPDATE mcp_auth_tokens SET active = false WHERE id = $1 RETURNING id",
-        [id]
-      );
-      if (!rows.length) {
+      const store = loadTokenStore();
+      const entry = store.tokens.find(t => t.id === id);
+      if (!entry) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not found" }));
         return;
       }
+      entry.active = false;
+      saveTokenStore(store);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, id }));
       return;

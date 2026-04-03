@@ -131,6 +131,16 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
+# ── Token store persistence ───────────────────────────────────────────────────
+persistence:
+  # enabled: false → emptyDir (tokens are lost on pod restart)
+  # enabled: true  → PersistentVolumeClaim
+  enabled: false
+  # existingClaim: ""   # use a pre-existing PVC instead of creating one
+  size: 10Mi
+  storageClass: ""      # "" = cluster default storage class
+  accessMode: ReadWriteOnce
+
 # ── Misc ──────────────────────────────────────────────────────────────────────
 nameOverride: ""
 fullnameOverride: ""

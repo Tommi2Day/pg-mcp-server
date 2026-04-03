@@ -67,6 +67,10 @@ spec:
             {{- end }}
             {{- end }}
 
+            # ── Token store ───────────────────────────────────────────────
+            - name: TOKENS_FILE
+              value: /data/tokens.json
+
             # ── Authentication ────────────────────────────────────────────
             {{- if or .Values.auth.token .Values.auth.existingSecret }}
             - name: AUTH_TOKEN
@@ -107,6 +111,8 @@ spec:
             {{- end }}
 
           volumeMounts:
+            - name: data
+              mountPath: /data
             {{- if .Values.server.tlsEnabled }}
             - name: certs
               mountPath: /certs
@@ -135,6 +141,13 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
 
       volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "pg-mcp-server.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         {{- if .Values.server.tlsEnabled }}
         - name: certs
           {{- if .Values.tls.existingSecret }}

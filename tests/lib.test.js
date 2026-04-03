@@ -13,6 +13,16 @@ import {
 } from "../lib.js";
 import { makeReq, makeRes, resBody } from "./helpers.js";
 
+// ── Mock node:fs (for token store used by checkAuth) ──────────────────────────
+const { mockReadFile, mockWriteFile } = vi.hoisted(() => ({
+  mockReadFile:  vi.fn(),
+  mockWriteFile: vi.fn(),
+}));
+
+vi.mock("node:fs", () => ({
+  default: { readFileSync: mockReadFile, writeFileSync: mockWriteFile },
+}));
+
 // ── hashToken ─────────────────────────────────────────────────────────────────
 describe("hashToken", () => {
   it("returns a 64-character hex string", () => {
@@ -160,12 +170,11 @@ describe("getAuthToken", () => {
 describe("checkAdminAuth", () => {
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
-  it("returns false with 503 when AUTH_TOKEN is not configured", () => {
+  it("returns true when AUTH_TOKEN is not configured (auth disabled)", () => {
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
-    expect(checkAdminAuth(req, res)).toBe(false);
-    expect(res.writeHead).toHaveBeenCalledWith(503, expect.any(Object));
-    expect(resBody(res)).toMatchObject({ error: expect.stringContaining("AUTH_TOKEN") });
+    expect(checkAdminAuth(req, res)).toBe(true);
+    expect(res.writeHead).not.toHaveBeenCalled();
   });
 
   it("returns false with 401 for a wrong token", () => {
@@ -187,58 +196,93 @@ describe("checkAdminAuth", () => {
 
 // ── checkAuth ─────────────────────────────────────────────────────────────────
 describe("checkAuth", () => {
-  let mockPool;
-
   beforeEach(() => {
     delete process.env.AUTH_TOKEN;
-    mockPool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    vi.clearAllMocks();
+    // Default: file not found → empty store
+    mockReadFile.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    mockWriteFile.mockImplementation(() => {});
   });
 
   afterEach(() => { delete process.env.AUTH_TOKEN; });
 
-  it("returns { ok: true, name: 'anonymous' } when AUTH_TOKEN is not set (auth disabled)", async () => {
+  it("returns { ok: true, name: 'anonymous', connection: null } when AUTH_TOKEN is not set", async () => {
     const req = makeReq("POST", "/mcp");
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "anonymous" });
-    expect(mockPool.query).not.toHaveBeenCalled();
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "anonymous", connection: null });
+    expect(mockReadFile).not.toHaveBeenCalled();
   });
 
   it("returns { ok: false } with 401 when no token is in the request", async () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "" } });
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: false });
+    expect(await checkAuth(req, res)).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
+    expect(mockReadFile).not.toHaveBeenCalled();
   });
 
-  it("returns { ok: true, name: 'admin' } for the correct ENV token", async () => {
+  it("returns { ok: true, name: 'admin', connection: null } for the correct ENV token", async () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } });
     const res = makeRes();
-    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "admin" });
-    expect(mockPool.query).not.toHaveBeenCalled();
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "admin", connection: null });
+    expect(mockReadFile).not.toHaveBeenCalled();
   });
 
-  it("returns { ok: true, name: <token-name> } for a valid DB token", async () => {
+  it("returns { ok: true, name, connection: null } for a valid file token without connection", async () => {
     process.env.AUTH_TOKEN = "admin-secret";
-    const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer db-token" } });
+    const plaintext = "db-token";
+    const store = {
+      tokens: [{ id: 7, name: "claude-desktop", token_hash: hashToken(plaintext), active: true,
+                  last_used_at: null, connection: null }],
+      next_id: 8,
+    };
+    mockReadFile.mockReturnValueOnce(JSON.stringify(store));
+    const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
     const res = makeRes();
-    mockPool.query
-      .mockResolvedValueOnce({ rows: [{ id: 7, name: "claude-desktop" }] })  // SELECT
-      .mockResolvedValueOnce({ rows: [] });                                    // UPDATE last_used_at
-    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: true, name: "claude-desktop" });
-    expect(mockPool.query).toHaveBeenCalledWith(
-      expect.stringContaining("SELECT id, name FROM mcp_auth_tokens"),
-      [hashToken("db-token")]
-    );
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "claude-desktop", connection: null });
+    expect(mockWriteFile).toHaveBeenCalled(); // last_used_at updated
   });
 
-  it("returns { ok: false } for a token not found in DB", async () => {
+  it("returns { ok: true, name, connection } for a token with a custom connection", async () => {
     process.env.AUTH_TOKEN = "admin-secret";
+    const plaintext = "tok";
+    const connection = { host: "myhost", port: 5433, database: "mydb", user: "u", password: "p" };
+    const store = {
+      tokens: [{ id: 1, name: "mytoken", token_hash: hashToken(plaintext), active: true,
+                  last_used_at: null, connection }],
+      next_id: 2,
+    };
+    mockReadFile.mockReturnValueOnce(JSON.stringify(store));
+    const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
+    const res = makeRes();
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "mytoken", connection });
+  });
+
+  it("returns { ok: false } for a token not found in the file store", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    mockReadFile.mockReturnValueOnce(JSON.stringify({ tokens: [], next_id: 1 }));
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer bad" } });
     const res = makeRes();
-    mockPool.query.mockResolvedValueOnce({ rows: [] });
-    expect(await checkAuth(mockPool, req, res)).toEqual({ ok: false });
+    expect(await checkAuth(req, res)).toEqual({ ok: false });
+    expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
+  });
+
+  it("returns { ok: false } for an inactive token", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    const plaintext = "tok";
+    const store = {
+      tokens: [{ id: 1, name: "disabled", token_hash: hashToken(plaintext), active: false,
+                  last_used_at: null, connection: null }],
+      next_id: 2,
+    };
+    mockReadFile.mockReturnValueOnce(JSON.stringify(store));
+    const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
+    const res = makeRes();
+    expect(await checkAuth(req, res)).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
   });
 });

@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+.claude/
+.env
+auth_token
+tokens.json

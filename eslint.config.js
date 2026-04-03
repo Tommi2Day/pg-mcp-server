@@ -11,7 +11,7 @@ export default [
       globals: globals.node,
     },
     rules: {
-      "no-console":   "off",          // server loggt absichtlich über console.error
+      "no-console":   "off",          // server intentionally logs via console.error
       "no-var":       "error",
       "prefer-const": "warn",
       "eqeqeq":       ["error", "always"],

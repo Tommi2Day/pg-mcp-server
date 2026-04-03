@@ -30,12 +30,14 @@ docker run -d --name $NAME \
   -p $MCP_PORT:3000 \
   -e TRANSPORT=http \
   -e AUTH_TOKEN=$AUTH_TOKEN \
+  -e TOKENS_FILE=/data/tokens.json \
   -e PG_HOST=$PG_HOST \
   -e PG_PORT=$PG_PORT \
   -e PG_DATABASE=$PG_DATABASE \
   -e PG_USER=$PG_USER \
   -e PG_PASSWORD=$PG_PASSWORD \
   -e PG_SSL=${PG_SSL:-false} \
+  -v ${NAME}-data:/data \
   tommi2day/pg-mcp-server:latest
 
 sleep 10

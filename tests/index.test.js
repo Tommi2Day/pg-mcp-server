@@ -42,30 +42,17 @@ vi.mock("../lib.js", () => ({
   readFileEnv: vi.fn(),
   buildPgSsl: vi.fn(() => false),
   getAuthToken: vi.fn(() => ""),
-  checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin" }),
+  checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin", connection: null }),
   handleAdminRequest: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { handleRequest, initTokenTable, createMcpServer } from "../index.js";
+import { handleRequest, createMcpServer, getPool } from "../index.js";
 import { checkAuth, handleAdminRequest } from "../lib.js";
-
-// ── initTokenTable ────────────────────────────────────────────────────────────
-describe("initTokenTable", () => {
-  it("executes CREATE TABLE IF NOT EXISTS", async () => {
-    const mockPool = { query: vi.fn().mockResolvedValue({}) };
-    await initTokenTable(mockPool);
-    expect(mockPool.query).toHaveBeenCalledOnce();
-    const [sql] = mockPool.query.mock.calls[0];
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS mcp_auth_tokens");
-    expect(sql).toContain("token_hash");
-    expect(sql).toContain("SERIAL PRIMARY KEY");
-  });
-});
 
 // ── handleRequest ─────────────────────────────────────────────────────────────
 describe("handleRequest", () => {
   afterEach(() => {
-    vi.mocked(checkAuth).mockResolvedValue({ ok: true, name: "admin" });
+    vi.mocked(checkAuth).mockResolvedValue({ ok: true, name: "admin", connection: null });
     vi.mocked(handleAdminRequest).mockResolvedValue(undefined);
     mockTransport.handleRequest.mockClear();
     delete process.env.TLS_ENABLED;
@@ -92,14 +79,14 @@ describe("handleRequest", () => {
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
     await handleRequest(req, res);
-    expect(vi.mocked(handleAdminRequest)).toHaveBeenCalledWith(undefined, req, res);
+    expect(vi.mocked(handleAdminRequest)).toHaveBeenCalledWith(req, res);
   });
 
   it("/admin/tokens/5 also delegates to handleAdminRequest", async () => {
     const req = makeReq("DELETE", "/admin/tokens/5");
     const res = makeRes();
     await handleRequest(req, res);
-    expect(vi.mocked(handleAdminRequest)).toHaveBeenCalledWith(undefined, req, res);
+    expect(vi.mocked(handleAdminRequest)).toHaveBeenCalledWith(req, res);
   });
 
   it("/mcp does not call transport when checkAuth returns { ok: false }", async () => {
@@ -111,7 +98,7 @@ describe("handleRequest", () => {
   });
 
   it("/mcp creates a new session and calls transport.handleRequest on successful auth", async () => {
-    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "test-user" });
+    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "test-user", connection: null });
     const req = makeReq("POST", "/mcp");
     const res = makeRes();
     await handleRequest(req, res);
@@ -124,6 +111,30 @@ describe("handleRequest", () => {
     await handleRequest(req, res);
     expect(res.writeHead).toHaveBeenCalledWith(404);
     expect(res.end).toHaveBeenCalledWith("Not found");
+  });
+});
+
+// ── getPool ───────────────────────────────────────────────────────────────────
+describe("getPool", () => {
+  it("returns the admin pool (undefined in tests) when connection is null", () => {
+    expect(getPool(null)).toBeUndefined();
+  });
+
+  it("returns a Pool instance for a connection config", () => {
+    const conn = { host: "myhost", port: 5433, database: "mydb", user: "u", password: "p" };
+    const p = getPool(conn);
+    expect(p).toBeDefined();
+  });
+
+  it("returns the same cached Pool for the same connection config", () => {
+    const conn = { host: "cachehost", database: "cachedb", user: "u", password: "p" };
+    expect(getPool(conn)).toBe(getPool(conn));
+  });
+
+  it("returns different Pool instances for different connection configs", () => {
+    const conn1 = { host: "host1", database: "db1", user: "u1", password: "p1" };
+    const conn2 = { host: "host2", database: "db2", user: "u2", password: "p2" };
+    expect(getPool(conn1)).not.toBe(getPool(conn2));
   });
 });
 
