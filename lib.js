@@ -139,7 +139,7 @@ export async function handleAdminRequest(req, res) {
     // GET /admin/tokens – list all tokens (token_hash excluded)
     if (req.method === "GET" && !id) {
       const { tokens } = loadTokenStore();
-      const safe = tokens.map(({ token_hash, ...rest }) => rest);
+      const safe = tokens.map(({ token_hash: _h, ...rest }) => rest);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ tokens: safe }));
       return;
@@ -172,7 +172,7 @@ export async function handleAdminRequest(req, res) {
       };
       store.tokens.push(entry);
       saveTokenStore(store);
-      const { token_hash, ...safe } = entry;
+      const { token_hash: _h, ...safe } = entry;
       res.writeHead(201, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ...safe, token })); // plaintext returned once only
       return;
@@ -204,7 +204,7 @@ export async function handleAdminRequest(req, res) {
       if (updates.active   !== undefined) entry.active     = !!updates.active;
       if (updates.connection !== undefined) entry.connection = updates.connection || null;
       saveTokenStore(store);
-      const { token_hash, ...safe } = entry;
+      const { token_hash: _h2, ...safe } = entry;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(safe));
       return;
