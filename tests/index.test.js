@@ -18,12 +18,15 @@ vi.mock("node:crypto", async (importOriginal) => {
   return { ...actual, randomUUID: vi.fn(() => "test-session-id") };
 });
 
-vi.mock("@modelcontextprotocol/sdk/server/index.js", () => ({
-  Server: vi.fn(() => ({
-    setRequestHandler: vi.fn((schema, handler) => { capturedHandlers[schema] = handler; }),
-    connect: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
+vi.mock("@modelcontextprotocol/sdk/server/index.js", () => {
+  const Server = vi.fn(function() {
+    return {
+      setRequestHandler: vi.fn((schema, handler) => { capturedHandlers[schema] = handler; }),
+      connect: vi.fn().mockResolvedValue(undefined),
+    };
+  });
+  return { Server };
+});
 
 vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
   StreamableHTTPServerTransport: vi.fn(() => mockTransport),
