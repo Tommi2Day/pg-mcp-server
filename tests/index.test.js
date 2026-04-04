@@ -10,7 +10,7 @@ const { capturedHandlers, mockTransport } = vi.hoisted(() => {
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 vi.mock("pg", () => ({
-  default: { Pool: vi.fn(() => ({ query: vi.fn(), end: vi.fn() })) },
+  default: { Pool: vi.fn(function() { return { query: vi.fn(), end: vi.fn() }; }) },
 }));
 
 vi.mock("node:crypto", async (importOriginal) => {
@@ -29,7 +29,7 @@ vi.mock("@modelcontextprotocol/sdk/server/index.js", () => {
 });
 
 vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
-  StreamableHTTPServerTransport: vi.fn(() => mockTransport),
+  StreamableHTTPServerTransport: vi.fn(function() { return mockTransport; }),
 }));
 
 vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
