@@ -515,6 +515,15 @@ The token store is a plain JSON file. The server reads and writes it automatical
 
 `connection: null` means the token uses the server's default PostgreSQL connection. The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored.
 
+## Automated Updates
+
+Dependabot is configured to check for updates weekly for:
+- **npm** dependencies (grouped into `production` and `dev`)
+- **Docker** base images
+- **GitHub Actions**
+
+The [Dependabot Automerge](.github/workflows/dependabot-automerge.yml) workflow automatically enables auto-merge for Dependabot PRs.
+
 ---
 
 ## Development
