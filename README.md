@@ -5,6 +5,7 @@ Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 ![CI](https://github.com/tommi2day/pg-mcp-server/actions/workflows/ci.yml/badge.svg)
 [![codecov](https://codecov.io/gh/Tommi2Day/pg-mcp-server/graph/badge.svg?token=CYLM3NQPZK)](https://codecov.io/gh/Tommi2Day/pg-mcp-server)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tommi2day/pg-mcp-server)
+![Docker Pulls](https://img.shields.io/docker/pulls/tommi2day/pg-mcp-server)
 
 ## Overview
 
