@@ -256,6 +256,20 @@ export async function handleRequest(req, res) {
     res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
     return;
   }
+  if (req.url === "/info" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      version,
+      db: {
+        host:     process.env.PG_HOST     || "localhost",
+        port:     parseInt(process.env.PG_PORT || "5432"),
+        database: process.env.PG_DATABASE || "postgres",
+        user:     process.env.PG_USER     || "postgres",
+        ssl:      process.env.PG_SSL      || "false",
+      },
+    }));
+    return;
+  }
   if (req.url?.startsWith("/admin/tokens")) {
     await handleAdminRequest(req, res);
     return;
@@ -318,20 +332,22 @@ if (isMain) {
       }
       https.createServer(tlsOptions, handleRequest).listen(PORT, () => {
         console.error(`PostgreSQL MCP Server (HTTPS) listening on port ${PORT}`);
-        console.error(`  MCP endpoint : https://0.0.0.0:${PORT}/mcp`);
-        console.error(`  Admin UI     : https://0.0.0.0:${PORT}/admin`);
-        console.error(`  Admin API    : https://0.0.0.0:${PORT}/admin/tokens`);
-        console.error(`  Health check : https://0.0.0.0:${PORT}/health`);
+        console.error(`  MCP endpoint : https://localhost:${PORT}/mcp`);
+        console.error(`  Admin UI     : https://localhost:${PORT}/admin`);
+        console.error(`  Admin API    : https://localhost:${PORT}/admin/tokens`);
+        console.error(`  Health check : https://localhost:${PORT}/health`);
+        console.error(`  Server info  : https://localhost:${PORT}/info`);
         console.error(`  Auth         : ${authInfo}`);
       });
     } else {
       // ── HTTP ───────────────────────────────────────────────────────────────
       http.createServer(handleRequest).listen(PORT, () => {
         console.error(`PostgreSQL MCP Server (HTTP) listening on port ${PORT}`);
-        console.error(`  MCP endpoint : http://0.0.0.0:${PORT}/mcp`);
-        console.error(`  Admin UI     : http://0.0.0.0:${PORT}/admin`);
-        console.error(`  Admin API    : http://0.0.0.0:${PORT}/admin/tokens`);
-        console.error(`  Health check : http://0.0.0.0:${PORT}/health`);
+        console.error(`  MCP endpoint : http://localhost:${PORT}/mcp`);
+        console.error(`  Admin UI     : http://localhost:${PORT}/admin`);
+        console.error(`  Admin API    : http://localhost:${PORT}/admin/tokens`);
+        console.error(`  Health check : http://localhost:${PORT}/health`);
+        console.error(`  Server info  : http://localhost:${PORT}/info`);
         console.error(`  Auth         : ${authInfo}`);
       });
     }

@@ -94,6 +94,29 @@ describe("handleRequest", () => {
     expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({ tls: true });
   });
 
+  it("GET /info returns version and db connection info without password", async () => {
+    process.env.PG_HOST     = "dbhost";
+    process.env.PG_PORT     = "5433";
+    process.env.PG_DATABASE = "mydb";
+    process.env.PG_USER     = "myuser";
+    process.env.PG_PASSWORD = "secret";
+    process.env.PG_SSL      = "true";
+    const req = makeReq("GET", "/info");
+    const res = makeRes();
+    await handleRequest(req, res);
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({ "Content-Type": "application/json" }));
+    const body = JSON.parse(res.end.mock.calls[0][0]);
+    expect(body.version).toBeTruthy();
+    expect(body.db).toEqual({ host: "dbhost", port: 5433, database: "mydb", user: "myuser", ssl: "true" });
+    expect(body.db.password).toBeUndefined();
+    delete process.env.PG_HOST;
+    delete process.env.PG_PORT;
+    delete process.env.PG_DATABASE;
+    delete process.env.PG_USER;
+    delete process.env.PG_PASSWORD;
+    delete process.env.PG_SSL;
+  });
+
   it("/admin/tokens delegates to handleAdminRequest", async () => {
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
