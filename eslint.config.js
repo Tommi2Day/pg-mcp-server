@@ -15,7 +15,7 @@ export default [
       "no-var":       "error",
       "prefer-const": "warn",
       "eqeqeq":       ["error", "always"],
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
   {
