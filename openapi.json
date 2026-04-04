@@ -34,34 +34,15 @@
         "nullable": true,
         "description": "Per-token PostgreSQL connection. When null the server's default connection (PG_HOST / PG_DATABASE / … env vars) is used.",
         "properties": {
-          "host": {
-            "type": "string",
-            "example": "db.example.com"
-          },
-          "port": {
-            "type": "integer",
-            "example": 5432
-          },
-          "database": {
-            "type": "string",
-            "example": "mydb"
-          },
-          "user": {
-            "type": "string",
-            "example": "myuser"
-          },
-          "password": {
-            "type": "string",
-            "example": "secret"
-          },
+          "host":     { "type": "string" },
+          "port":     { "type": "integer" },
+          "database": { "type": "string" },
+          "user":     { "type": "string" },
+          "password": { "type": "string" },
           "ssl": {
             "type": "string",
-            "enum": [
-              "false",
-              "true"
-            ],
+            "enum": ["false", "true"],
             "default": "false",
-            "example": "false",
             "description": "false = no TLS, true = TLS without cert verification"
           }
         }
@@ -69,37 +50,15 @@
       "Token": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "integer",
-            "example": 1
-          },
-          "name": {
-            "type": "string",
-            "example": "claude-desktop"
-          },
-          "active": {
-            "type": "boolean",
-            "example": true
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_used_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
+          "id":           { "type": "integer" },
+          "name":         { "type": "string" },
+          "active":       { "type": "boolean" },
+          "created_at":   { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": "string",  "format": "date-time", "nullable": true },
           "connection": {
             "oneOf": [
-              {
-                "$ref": "#/components/schemas/TokenConnection"
-              },
-              {
-                "type": "null"
-              }
+              { "$ref": "#/components/schemas/TokenConnection" },
+              { "type": "null" }
             ],
             "description": "Custom PostgreSQL connection for this token, or null to use the server default."
           }
@@ -108,15 +67,54 @@
       "Error": {
         "type": "object",
         "properties": {
-          "error": {
-            "type": "string",
-            "example": "Not found"
-          }
+          "error": { "type": "string" }
         }
       }
     }
   },
   "paths": {
+    "/info": {
+      "get": {
+        "summary": "Server info",
+        "description": "Returns the server version and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included. No authentication required.",
+        "operationId": "getInfo",
+        "responses": {
+          "200": {
+            "description": "Server version and default DB connection config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": { "type": "string" },
+                    "db": {
+                      "type": "object",
+                      "properties": {
+                        "host":     { "type": "string" },
+                        "port":     { "type": "integer" },
+                        "database": { "type": "string" },
+                        "user":     { "type": "string" },
+                        "ssl":      { "type": "string" }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "version": "0.0.7",
+                  "db": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "postgres",
+                    "user": "postgres",
+                    "ssl": "false"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health check",
@@ -130,16 +128,11 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "ok"
-                    },
-                    "tls": {
-                      "type": "boolean",
-                      "example": false
-                    }
+                    "status": { "type": "string" },
+                    "tls":    { "type": "boolean" }
                   }
-                }
+                },
+                "example": { "status": "ok", "tls": false }
               }
             }
           }
@@ -152,12 +145,8 @@
         "description": "MCP protocol transport. Requires a Bearer token (admin or file token). When the token has a custom connection configured, that PostgreSQL database is used for this session; otherwise the server default is used. Multi-step protocol: send `initialize` first, then `notifications/initialized`, then tool calls. Include the `mcp-session-id` header returned from `initialize` in subsequent requests.",
         "operationId": "mcpRequest",
         "security": [
-          {
-            "AdminToken": []
-          },
-          {
-            "FileToken": []
-          }
+          { "AdminToken": [] },
+          { "FileToken": [] }
         ],
         "parameters": [
           {
@@ -165,9 +154,7 @@
             "in": "header",
             "required": false,
             "description": "Session ID returned by the server after initialize. Include in all follow-up requests.",
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "requestBody": {
@@ -177,95 +164,20 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "jsonrpc": {
-                    "type": "string",
-                    "enum": [
-                      "2.0"
-                    ]
-                  },
-                  "id": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "method": {
-                    "type": "string",
-                    "example": "tools/call"
-                  },
-                  "params": {
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "jsonrpc",
-                  "method"
-                ]
+                  "jsonrpc": { "type": "string" },
+                  "id":      { "type": "integer" },
+                  "method":  { "type": "string" },
+                  "params":  { "type": "object" }
+                }
               },
-              "examples": {
-                "initialize": {
-                  "summary": "Step 1 – initialize session",
-                  "value": {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                      "protocolVersion": "2024-11-05",
-                      "capabilities": {},
-                      "clientInfo": {
-                        "name": "my-client",
-                        "version": "1.0"
-                      }
-                    }
-                  }
-                },
-                "initialized": {
-                  "summary": "Step 2 – confirm initialization (fire-and-forget)",
-                  "value": {
-                    "jsonrpc": "2.0",
-                    "method": "notifications/initialized",
-                    "params": {}
-                  }
-                },
-                "list_tools": {
-                  "summary": "List available tools",
-                  "value": {
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/list",
-                    "params": {}
-                  }
-                },
-                "call_list_tables": {
-                  "summary": "Call list_tables tool",
-                  "value": {
-                    "jsonrpc": "2.0",
-                    "id": 3,
-                    "method": "tools/call",
-                    "params": {
-                      "name": "list_tables",
-                      "arguments": {
-                        "schema": "public"
-                      }
-                    }
-                  }
-                },
-                "call_query": {
-                  "summary": "Call query tool",
-                  "value": {
-                    "jsonrpc": "2.0",
-                    "id": 4,
-                    "method": "tools/call",
-                    "params": {
-                      "name": "query",
-                      "arguments": {
-                        "sql": "SELECT id, name FROM users WHERE id = $1",
-                        "params": [
-                          1
-                        ]
-                      }
-                    }
-                  }
+              "example": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                  "protocolVersion": "2024-11-05",
+                  "capabilities": {},
+                  "clientInfo": { "name": "my-client", "version": "1.0" }
                 }
               }
             }
@@ -277,33 +189,21 @@
             "headers": {
               "mcp-session-id": {
                 "description": "Session ID — include in subsequent requests",
-                "schema": {
-                  "type": "string"
-                }
+                "schema": { "type": "string" }
               }
             },
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object"
-                }
+                "schema": { "type": "object" }
               },
               "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
+                "schema": { "type": "string" }
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid Bearer token"
-          },
-          "403": {
-            "description": "Token not authorized for this endpoint"
-          },
-          "503": {
-            "description": "AUTH_TOKEN not configured on the server"
-          }
+          "401": { "description": "Missing or invalid Bearer token" },
+          "403": { "description": "Token not authorized for this endpoint" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
         }
       }
     },
@@ -312,11 +212,7 @@
         "summary": "List all tokens",
         "description": "Returns all tokens from the token store. The token_hash field is never included in responses.",
         "operationId": "listTokens",
-        "security": [
-          {
-            "AdminToken": []
-          }
-        ],
+        "security": [{ "AdminToken": [] }],
         "responses": {
           "200": {
             "description": "All tokens",
@@ -327,32 +223,22 @@
                   "properties": {
                     "tokens": {
                       "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Token"
-                      }
+                      "items": { "$ref": "#/components/schemas/Token" }
                     }
                   }
                 }
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid admin token"
-          },
-          "503": {
-            "description": "AUTH_TOKEN not configured on the server"
-          }
+          "401": { "description": "Missing or invalid admin token" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
         }
       },
       "post": {
         "summary": "Create a new token",
         "description": "Creates a new token entry in the token store. The plaintext token is returned once only — only its SHA-256 hash is persisted. An optional `connection` object routes this token to a specific PostgreSQL database; omit it (or set null) to use the server default.",
         "operationId": "createToken",
-        "security": [
-          {
-            "AdminToken": []
-          }
-        ],
+        "security": [{ "AdminToken": [] }],
         "requestBody": {
           "required": true,
           "content": {
@@ -360,47 +246,19 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "name": {
-                    "type": "string",
-                    "example": "claude-desktop"
-                  },
+                  "name": { "type": "string" },
                   "connection": {
                     "oneOf": [
-                      {
-                        "$ref": "#/components/schemas/TokenConnection"
-                      },
-                      {
-                        "type": "null"
-                      }
+                      { "$ref": "#/components/schemas/TokenConnection" },
+                      { "type": "null" }
                     ],
                     "description": "Optional PostgreSQL connection for this token. Omit or set null to use the server default."
                   }
                 },
-                "required": [
-                  "name"
-                ]
+                "required": ["name"]
               },
-              "examples": {
-                "default_connection": {
-                  "summary": "Token using the server default connection",
-                  "value": {
-                    "name": "claude-desktop"
-                  }
-                },
-                "custom_connection": {
-                  "summary": "Token with its own PostgreSQL connection",
-                  "value": {
-                    "name": "mydb-client",
-                    "connection": {
-                      "host": "db.example.com",
-                      "port": 5432,
-                      "database": "mydb",
-                      "user": "myuser",
-                      "password": "secret",
-                      "ssl": "false"
-                    }
-                  }
-                }
+              "example": {
+                "name": "claude-desktop"
               }
             }
           }
@@ -412,16 +270,13 @@
               "application/json": {
                 "schema": {
                   "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Token"
-                    },
+                    { "$ref": "#/components/schemas/Token" },
                     {
                       "type": "object",
                       "properties": {
                         "token": {
                           "type": "string",
-                          "description": "Plaintext token — store securely, not shown again",
-                          "example": "a3f8...64-hex-chars"
+                          "description": "Plaintext token — store securely, not shown again"
                         }
                       }
                     }
@@ -434,18 +289,12 @@
             "description": "name is missing or blank, or connection is not a valid object",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid admin token"
-          },
-          "503": {
-            "description": "AUTH_TOKEN not configured on the server"
-          }
+          "401": { "description": "Missing or invalid admin token" },
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
         }
       }
     },
@@ -455,21 +304,14 @@
           "name": "id",
           "in": "path",
           "required": true,
-          "schema": {
-            "type": "integer"
-          },
-          "example": 1
+          "schema": { "type": "integer" }
         }
       ],
       "patch": {
         "summary": "Update a token",
         "description": "Updates one or more of name, active, or connection. At least one field must be provided. Set connection to null to clear a custom connection and fall back to the server default.",
         "operationId": "updateToken",
-        "security": [
-          {
-            "AdminToken": []
-          }
-        ],
+        "security": [{ "AdminToken": [] }],
         "requestBody": {
           "required": true,
           "content": {
@@ -477,60 +319,18 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "name": {
-                    "type": "string",
-                    "example": "new-name"
-                  },
-                  "active": {
-                    "type": "boolean",
-                    "example": false
-                  },
+                  "name":   { "type": "string" },
+                  "active": { "type": "boolean" },
                   "connection": {
                     "oneOf": [
-                      {
-                        "$ref": "#/components/schemas/TokenConnection"
-                      },
-                      {
-                        "type": "null"
-                      }
+                      { "$ref": "#/components/schemas/TokenConnection" },
+                      { "type": "null" }
                     ],
                     "description": "Set a custom connection, update it, or pass null to clear it."
                   }
-                },
-                "minProperties": 1
-              },
-              "examples": {
-                "rename": {
-                  "summary": "Rename a token",
-                  "value": {
-                    "name": "new-name"
-                  }
-                },
-                "disable": {
-                  "summary": "Disable a token",
-                  "value": {
-                    "active": false
-                  }
-                },
-                "set_connection": {
-                  "summary": "Set a custom DB connection",
-                  "value": {
-                    "connection": {
-                      "host": "db.example.com",
-                      "port": 5432,
-                      "database": "mydb",
-                      "user": "u",
-                      "password": "p"
-                    }
-                  }
-                },
-                "clear_connection": {
-                  "summary": "Clear connection — use server default",
-                  "value": {
-                    "connection": null
-                  }
                 }
-              }
+              },
+              "example": { "name": "new-name" }
             }
           }
         },
@@ -539,9 +339,7 @@
             "description": "Updated token (token_hash is never returned)",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Token"
-                }
+                "schema": { "$ref": "#/components/schemas/Token" }
               }
             }
           },
@@ -549,39 +347,27 @@
             "description": "No valid fields provided, or connection is not a valid object",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid admin token"
-          },
+          "401": { "description": "Missing or invalid admin token" },
           "404": {
             "description": "Token not found",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           },
-          "503": {
-            "description": "AUTH_TOKEN not configured on the server"
-          }
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
         }
       },
       "delete": {
         "summary": "Deactivate a token",
         "description": "Sets active=false. The token record remains in the token store.",
         "operationId": "deleteToken",
-        "security": [
-          {
-            "AdminToken": []
-          }
-        ],
+        "security": [{ "AdminToken": [] }],
         "responses": {
           "200": {
             "description": "Token deactivated",
@@ -590,35 +376,23 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "ok": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "id": {
-                      "type": "integer",
-                      "example": 1
-                    }
+                    "ok": { "type": "boolean" },
+                    "id": { "type": "integer" }
                   }
                 }
               }
             }
           },
-          "401": {
-            "description": "Missing or invalid admin token"
-          },
+          "401": { "description": "Missing or invalid admin token" },
           "404": {
             "description": "Token not found",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
+                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           },
-          "503": {
-            "description": "AUTH_TOKEN not configured on the server"
-          }
+          "503": { "description": "AUTH_TOKEN not configured on the server" }
         }
       }
     }
