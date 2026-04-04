@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import { makeReq, makeRes } from "./helpers.js";
 
 // ── Hoisted shared state (available inside vi.mock factories) ─────────────────
@@ -46,7 +46,7 @@ vi.mock("../lib.js", () => ({
   handleAdminRequest: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { handleRequest, createMcpServer, getPool } from "../index.js";
+import { handleRequest, createMcpServer, getPool, poolCache, sessions, pool } from "../index.js";
 import { checkAuth, handleAdminRequest } from "../lib.js";
 
 // ── handleRequest ─────────────────────────────────────────────────────────────
@@ -56,6 +56,22 @@ describe("handleRequest", () => {
     vi.mocked(handleAdminRequest).mockResolvedValue(undefined);
     mockTransport.handleRequest.mockClear();
     delete process.env.TLS_ENABLED;
+  });
+
+  afterAll(async () => {
+    // Clear the pool cache to close any open pools
+    for (const p of poolCache.values()) {
+      if (p && typeof p.end === "function") {
+        await p.end();
+      }
+    }
+    poolCache.clear();
+    sessions.clear();
+
+    // Close the default pool if it was initialized
+    if (pool && typeof pool.end === "function") {
+      await pool.end();
+    }
   });
 
   it("GET /health returns 200 + JSON (TLS_ENABLED=false → tls:false)", async () => {
@@ -278,6 +294,7 @@ describe("createMcpServer – CallTool", () => {
     mockPool.query.mockResolvedValueOnce({
       rows: [{ id: 1, email: "a@example.com" }, { id: 2, email: "b@example.com" }],
     });
+    // noinspection SqlNoDataSourceInspection
     const result = await call("query", { sql: "SELECT id, email FROM users" });
     const text = result.content[0].text;
     expect(text).toContain("id | email");
@@ -287,7 +304,9 @@ describe("createMcpServer – CallTool", () => {
 
   it("query passes parameters to pool.query", async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [{ id: 5 }] });
+    // noinspection SqlNoDataSourceInspection
     await call("query", { sql: "SELECT id FROM users WHERE id = $1", params: [5] });
+    // noinspection SqlNoDataSourceInspection
     expect(mockPool.query).toHaveBeenCalledWith("SELECT id FROM users WHERE id = $1", [5]);
   });
 
@@ -300,6 +319,7 @@ describe("createMcpServer – CallTool", () => {
   it("query limits output to 200 rows with a note", async () => {
     const rows = Array.from({ length: 201 }, (_, i) => ({ n: i }));
     mockPool.query.mockResolvedValueOnce({ rows });
+    // noinspection SqlNoDataSourceInspection
     const result = await call("query", { sql: "SELECT n FROM t" });
     expect(result.content[0].text).toContain("showing 200 of 201");
   });
@@ -307,6 +327,7 @@ describe("createMcpServer – CallTool", () => {
   // ── execute ──────────────────────────────────────────────────────────────────
   it("execute returns the number of affected rows", async () => {
     mockPool.query.mockResolvedValueOnce({ rowCount: 3 });
+    // noinspection SqlNoDataSourceInspection
     const result = await call("execute", { sql: "DELETE FROM users WHERE active = false" });
     expect(result.content[0].text).toContain("Rows affected: 3");
     expect(result.content[0].text).toContain("executed");

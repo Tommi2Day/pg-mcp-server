@@ -36,7 +36,7 @@ const { version } = createRequire(import.meta.url)("./package.json");
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
-let pool;
+export let pool;
 if (isMain) {
   pool = new Pool({
     host:     process.env.PG_HOST     || "localhost",
@@ -51,7 +51,7 @@ if (isMain) {
 }
 
 // ── Per-token pool cache ──────────────────────────────────────────────────────
-const poolCache = new Map(); // JSON key → Pool instance
+export const poolCache = new Map(); // JSON key → Pool instance
 
 /** Build a simple ssl config from a token connection's ssl field (no file loading). */
 function sslFromValue(val) {
@@ -153,15 +153,20 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
     try {
       switch (name) {
         case "test_connection": {
+          // noinspection SqlNoDataSourceInspection
           const res = await dbPool.query(
             "SELECT version(), current_database(), current_user, now(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-          ).catch(() => dbPool.query("SELECT version(), current_database(), current_user, now()"));
+          ).catch(() => {
+            // noinspection SqlNoDataSourceInspection
+            return dbPool.query("SELECT version(), current_database(), current_user, now()");
+          });
           const r = res.rows[0];
           const sslStatus = r.ssl !== undefined ? (r.ssl ? "✅ encrypted" : "⚠️ unencrypted") : "unknown";
           return { content: [{ type: "text", text:
             `✅ Connection successful!\n\nDatabase   : ${r.current_database}\nUser       : ${r.current_user}\nTime       : ${r.now}\nDB TLS     : ${sslStatus}\nVersion    : ${r.version}` }] };
         }
         case "list_schemas": {
+          // noinspection SqlNoDataSourceInspection
           const res = await dbPool.query(
             `SELECT schema_name FROM information_schema.schemata
              WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast')
@@ -171,6 +176,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
         }
         case "list_tables": {
           const schema = args.schema || "public";
+          // noinspection SqlNoDataSourceInspection
           const res = await dbPool.query(
             `SELECT table_name, table_type FROM information_schema.tables
              WHERE table_schema = $1 ORDER BY table_type, table_name`, [schema]
@@ -181,6 +187,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
         }
         case "describe_table": {
           const schema = args.schema || "public";
+          // noinspection SqlNoDataSourceInspection
           const res = await dbPool.query(
             `SELECT c.column_name, c.data_type, c.character_maximum_length, c.is_nullable, c.column_default,
                     CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END AS key
@@ -216,6 +223,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
           return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
         }
         default:
+          // noinspection ExceptionCaughtLocallyJS
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (err) {
@@ -227,7 +235,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
 }
 
 // ── Session store (stateful HTTP sessions) ────────────────────────────────────
-const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
+export const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
 
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
 export async function handleRequest(req, res) {
