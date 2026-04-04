@@ -568,12 +568,30 @@ All scripts require only Docker — no local Node.js needed.
 | Path | Auth | Description |
 |------|------|-------------|
 | `POST /mcp` | Admin or file token | MCP Streamable-HTTP (uses token's connection if set) |
+| `GET /info` | none | Server version + default DB connection config (no password) |
 | `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
 | `GET /admin` | none | Web-based token administration UI |
 | `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
 | `POST /admin/tokens` | Admin token only | Create token; optional `connection` object |
 | `PATCH /admin/tokens/:id` | Admin token only | Update `name`, `active`, and/or `connection` |
 | `DELETE /admin/tokens/:id` | Admin token only | Deactivate token |
+
+### `GET /info`
+
+Returns the server version and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included.
+
+```json
+{
+  "version": "0.0.7",
+  "db": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "postgres",
+    "user": "postgres",
+    "ssl": "false"
+  }
+}
+```
 
 A full OpenAPI 3.1 specification is available in [`openapi.json`](openapi.json).
 
