@@ -2,8 +2,8 @@ apiVersion: v2
 name: pg-mcp-server
 description: PostgreSQL MCP Server for Claude – exposes a PostgreSQL database via the Model Context Protocol over HTTP.
 type: application
-version: 0.0.7
-appVersion: "0.0.7"
+version: 0.0.8
+appVersion: "0.0.8"
 keywords:
   - mcp
   - postgresql

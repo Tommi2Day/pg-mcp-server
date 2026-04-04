@@ -1,6 +1,6 @@
 {
   "name": "pg-mcp-server",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "PostgreSQL MCP Server for Claude – stdio & HTTP",
   "main": "index.js",
   "type": "module",
