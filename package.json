@@ -14,7 +14,7 @@
     "version": "node --input-type=commonjs -e \"const fs=require('fs'),v=process.env.npm_new_version;const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=v;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');let c=fs.readFileSync('helm/pg-mcp-server/Chart.yaml','utf8');c=c.replace(/^version: .+/m,'version: '+v).replace(/^appVersion: .+/m,'appVersion: \\\"'+v+'\\\"');fs.writeFileSync('helm/pg-mcp-server/Chart.yaml',c);\" && git add openapi.json helm/pg-mcp-server/Chart.yaml"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "pg": "^8.13.0"
   },
   "devDependencies": {
