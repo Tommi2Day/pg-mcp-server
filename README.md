@@ -217,6 +217,62 @@ Once running, open `http://localhost:3000/admin` to manage tokens via the web UI
 
 Replace `http://` with `https://` for HTTPS.
 
+### Claude Desktop (`claude_desktop_config.json`) — HTTP/Remote
+
+> [!WARNING]
+> **Claude Desktop only supports HTTPS for non-local (remote) MCP servers.**
+> If your server runs on plain HTTP and is not on `localhost`, Claude Desktop will refuse the connection.
+> Use one of the options below:
+>
+> **Option A — Preferred:** Put the server behind a reverse proxy (Traefik, nginx, Caddy) with a valid TLS certificate and use `https://` in the URL.
+>
+> **Option B — Quick workaround:** Use [`mcp-remote`](https://github.com/geelen/mcp-remote) as a local stdio bridge. It runs on your machine and forwards requests to the HTTP server, so Claude Desktop treats it like a stdio tool.
+
+```json
+{
+  "mcpServers": {
+    "postgresql": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "http://192.168.1.100:3000/mcp",
+        "--allow-http",
+        "--header", "Authorization:Bearer <AUTH_TOKEN>"
+      ]
+    }
+  }
+}
+```
+
+### Verify the MCP endpoint
+
+**Health check:**
+```bash
+curl http://localhost:3000/health
+```
+
+**MCP initialize handshake** (checks that the server responds to MCP requests):
+```bash
+curl -s -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <AUTH_TOKEN>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+**Interactive browser UI** via [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+```bash
+# Local server — direct HTTP
+npx @modelcontextprotocol/inspector http://localhost:3000/mcp
+
+# Remote HTTP server — via mcp-remote bridge
+npx @modelcontextprotocol/inspector \
+  npx mcp-remote http://192.168.1.100:3000/mcp \
+  --allow-http \
+  --header "Authorization:Bearer <AUTH_TOKEN>"
+```
+
+The inspector opens a browser UI where you can list tools, call them individually, and inspect responses.
+
 ---
 
 ## 3 · Kubernetes with Helm
