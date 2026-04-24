@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./token.sh list
+#   ./token.sh show    <id>
 #   ./token.sh add <name>
 #   ./token.sh delete <id>
 #   ./token.sh enable  <id>
@@ -14,6 +15,8 @@
 #   ./token.sh rename  <id> <new-name>
 #   ./token.sh setconn <id> '<json>'   # set per-token DB connection
 #   ./token.sh clearconn <id>          # reset to default admin connection
+#   ./token.sh health                  # server health check
+#   ./token.sh info                    # server / DB info
 set -eo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -73,6 +76,10 @@ pretty() {
   fi
 }
 
+# ── JSON helpers ──────────────────────────────────────────────────────────────
+# Requires python3 for reliable JSON parsing; falls back to grep for list view.
+_py3() { command -v python3 >/dev/null 2>&1; }
+
 # ── Subcommands ───────────────────────────────────────────────────────────────
 cmd_list() {
   require_token
@@ -81,41 +88,150 @@ cmd_list() {
   body=$(check_response "$raw")
 
   echo ""
-  printf "%-5s %-30s %-8s %-24s %-24s\n" "ID" "NAME" "ACTIVE" "CREATED" "LAST USED"
-  printf "%-5s %-30s %-8s %-24s %-24s\n" "-----" "------------------------------" "--------" "------------------------" "------------------------"
-
-  echo "$body" | grep -o '"id":[0-9]*\|"name":"[^"]*"\|"active":[^,}]*\|"created_at":"[^"]*"\|"last_used_at":[^,}]*' | \
-  awk '
-    /^"id":/ { id=substr($0,6) }
-    /^"name":/ { gsub(/"name":"/, ""); gsub(/"/, ""); name=$0 }
-    /^"active":/ { gsub(/"active":/, ""); active=$0 }
-    /^"created_at":/ { gsub(/"created_at":"/, ""); gsub(/"/, ""); created=$0 }
-    /^"last_used_at":/ {
-      val=substr($0,15)
-      gsub(/"/, "", val)
-      last = (val == "null" || val == "") ? "-" : val
-      printf "%-5s %-30s %-8s %-24s %-24s\n", id, name, active, substr(created,1,19), substr(last,1,19)
-    }
-  '
+  if _py3; then
+    printf "%-5s %-30s %-8s %-6s %-24s %-24s\n" "ID" "NAME" "ACTIVE" "CONN" "CREATED" "LAST USED"
+    printf "%-5s %-30s %-8s %-6s %-24s %-24s\n" "-----" "------------------------------" "--------" "------" "------------------------" "------------------------"
+    python3 - "$body" <<'PYEOF'
+import sys, json
+tokens = json.loads(sys.argv[1]).get("tokens", [])
+for t in tokens:
+    conn = "yes" if t.get("connection") else "-"
+    last = (t.get("last_used_at") or "-")[:19]
+    print(f"{t['id']:<5} {t['name']:<30} {str(t['active']).lower():<8} {conn:<6} {t['created_at'][:19]:<24} {last:<24}")
+PYEOF
+  else
+    printf "%-5s %-30s %-8s %-24s %-24s\n" "ID" "NAME" "ACTIVE" "CREATED" "LAST USED"
+    printf "%-5s %-30s %-8s %-24s %-24s\n" "-----" "------------------------------" "--------" "------------------------" "------------------------"
+    echo "$body" | grep -o '"id":[0-9]*\|"name":"[^"]*"\|"active":[^,}]*\|"created_at":"[^"]*"\|"last_used_at":[^,}]*' | \
+    awk '
+      /^"id":/ { id=substr($0,6) }
+      /^"name":/ { gsub(/"name":"/, ""); gsub(/"/, ""); name=$0 }
+      /^"active":/ { gsub(/"active":/, ""); active=$0 }
+      /^"created_at":/ { gsub(/"created_at":"/, ""); gsub(/"/, ""); created=$0 }
+      /^"last_used_at":/ {
+        val=substr($0,15); gsub(/"/, "", val)
+        last = (val == "null" || val == "") ? "-" : val
+        printf "%-5s %-30s %-8s %-24s %-24s\n", id, name, active, substr(created,1,19), substr(last,1,19)
+      }
+    '
+  fi
   echo ""
+}
+
+cmd_show() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./token.sh show <id>"
+  local id="$1"
+
+  local raw body
+  raw=$(api GET "$API")
+  body=$(check_response "$raw")
+
+  if _py3; then
+    python3 - "$body" "$id" <<'PYEOF'
+import sys, json
+tokens = json.loads(sys.argv[1]).get("tokens", [])
+tid = int(sys.argv[2])
+t = next((x for x in tokens if x["id"] == tid), None)
+if not t:
+    print(f"❌ Token {tid} not found.", file=sys.stderr); sys.exit(1)
+print(f"\n  ID         : {t['id']}")
+print(f"  Name       : {t['name']}")
+print(f"  Active     : {t['active']}")
+print(f"  Created    : {t['created_at']}")
+print(f"  Last used  : {t.get('last_used_at') or '-'}")
+conn = t.get("connection")
+if conn:
+    print(f"  Connection : {conn.get('host','?')}:{conn.get('port',5432)}/{conn.get('database','?')} (user: {conn.get('user','?')}, ssl: {conn.get('ssl','false')})")
+else:
+    print(f"  Connection : (default admin connection)")
+print("")
+PYEOF
+  else
+    # Fallback: just pretty-print filtered JSON
+    echo "$body" | grep -o "\"id\":${id}[^}]*}" || die "Token ${id} not found."
+  fi
+}
+
+cmd_health() {
+  local raw
+  raw=$(curl -sS -w "\n%{http_code}" "${BASE_URL}/health")
+  local status body
+  status=$(echo "$raw" | tail -n1)
+  body=$(echo "$raw" | head -n -1)
+  if [ "$status" -ge 400 ]; then
+    die "HTTP ${status}: ${body}"
+  fi
+  if _py3; then
+    python3 - "$body" <<'PYEOF'
+import sys, json
+d = json.loads(sys.argv[1])
+status = "✅ ok" if d.get("status") == "ok" else f"⚠️  {d.get('status','unknown')}"
+tls    = "yes" if d.get("tls") else "no"
+print(f"\n  Status : {status}")
+print(f"  TLS    : {tls}\n")
+PYEOF
+  else
+    echo "$body"
+  fi
+}
+
+cmd_info() {
+  local raw
+  raw=$(curl -sS -w "\n%{http_code}" "${BASE_URL}/info")
+  local status body
+  status=$(echo "$raw" | tail -n1)
+  body=$(echo "$raw" | head -n -1)
+  if [ "$status" -ge 400 ]; then
+    die "HTTP ${status}: ${body}"
+  fi
+  if _py3; then
+    python3 - "$body" <<'PYEOF'
+import sys, json
+d = json.loads(sys.argv[1])
+db = d.get("db", {})
+print(f"\n  Version  : {d.get('version','?')}")
+print(f"  DB Host  : {db.get('host','?')}:{db.get('port','?')}")
+print(f"  Database : {db.get('database','?')}")
+print(f"  DB User  : {db.get('user','?')}")
+print(f"  DB TLS   : {db.get('ssl','?')}\n")
+PYEOF
+  else
+    pretty "$body"
+  fi
 }
 
 cmd_add() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh add <name>"
-  local name="$1"
+  [ -n "${1:-}" ] || die "Usage: ./token.sh add <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S]"
+  local name="$1"; shift
 
-  # Optional per-token connection from env vars (PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD, PG_SSL)
+  # Parse optional flags; flags take precedence over env vars
+  local opt_host="" opt_port="" opt_db="" opt_user="" opt_pass="" opt_ssl=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --host)     opt_host="$2";  shift 2 ;;
+      --port)     opt_port="$2";  shift 2 ;;
+      --database) opt_db="$2";    shift 2 ;;
+      --user)     opt_user="$2";  shift 2 ;;
+      --password) opt_pass="$2";  shift 2 ;;
+      --ssl)      opt_ssl="$2";   shift 2 ;;
+      *) die "Unknown option: $1" ;;
+    esac
+  done
+
+  # Merge: flag > env var; connection block only emitted when a host is known
+  local host="${opt_host:-${PG_HOST:-}}"
+  local port="${opt_port:-${PG_PORT:-5432}}"
+  local db="${opt_db:-${PG_DATABASE:-postgres}}"
+  local user="${opt_user:-${PG_USER:-postgres}}"
+  local pass="${opt_pass:-${PG_PASSWORD:-}}"
+  local ssl="${opt_ssl:-${PG_SSL:-false}}"
+
   local conn_json=""
-  if [ -n "${PG_HOST:-}" ]; then
-    local ssl="${PG_SSL:-false}"
-    local port="${PG_PORT:-5432}"
-    local db="${PG_DATABASE:-postgres}"
-    local user="${PG_USER:-postgres}"
-    local pass="${PG_PASSWORD:-}"
-    conn_json=$(printf ',
-  "connection": {"host": "%s", "port": %s, "database": "%s", "user": "%s", "password": "%s", "ssl": "%s"}' \
-      "$PG_HOST" "$port" "$db" "$user" "$pass" "$ssl")
+  if [ -n "$host" ]; then
+    conn_json=$(printf ',\n  "connection": {"host": "%s", "port": %s, "database": "%s", "user": "%s", "password": "%s", "ssl": "%s"}' \
+      "$host" "$port" "$db" "$user" "$pass" "$ssl")
   fi
 
   local raw body
@@ -137,8 +253,8 @@ cmd_add() {
   echo "   .mcp.json entry:"
   echo "   \"headers\": { \"Authorization\": \"Bearer ${token}\" }"
   echo ""
-  if [ -n "$conn_json" ]; then
-    echo "   Connection: ${PG_HOST}:${PG_PORT:-5432}/${PG_DATABASE:-postgres} (user: ${PG_USER:-postgres})"
+  if [ -n "$host" ]; then
+    echo "   Connection: ${host}:${port}/${db} (user: ${user}, ssl: ${ssl})"
     echo ""
   fi
 }
@@ -218,14 +334,23 @@ cmd_help() {
 pg-mcp-server token management
 
   Configuration (env vars or scripts/.env):
-    AUTH_TOKEN   Admin token (required)
+    AUTH_TOKEN   Admin token (required for token commands)
     MCP_URL      Server URL  (default: http://localhost:3000)
 
-  Commands:
+  Server commands (no AUTH_TOKEN needed):
+    health                  Show server health status
+    info                    Show server version and DB connection info
+
+  Token commands:
     list                    List all tokens
+    show   <id>             Show details of a single token (incl. connection)
     add    <name>           Create a new token
-                            Set PG_HOST/PG_PORT/PG_DATABASE/PG_USER/PG_PASSWORD
-                            to attach a custom DB connection to the token
+             [--host H]    Per-token DB connection (flags take precedence
+             [--port P]    over PG_HOST/PG_PORT/PG_DATABASE/PG_USER/
+             [--database D] PG_PASSWORD/PG_SSL env vars; omit all to use
+             [--user U]    the server's default admin connection)
+             [--password P]
+             [--ssl S]
     delete <id>             Permanently deactivate a token
     enable <id>             Re-enable a token
     disable <id>            Temporarily disable a token
@@ -236,11 +361,17 @@ pg-mcp-server token management
 
   Examples:
     export AUTH_TOKEN=<admin-token>
+    ./token.sh health
+    ./token.sh info
     ./token.sh list
+    ./token.sh show 2
     ./token.sh add "claude-desktop"
     ./token.sh delete 3
 
-    # Create token with custom DB connection
+    # Create token with custom DB connection (flags)
+    ./token.sh add "my-client" --host db.example.com --database mydb --user myuser --password secret
+
+    # Create token with custom DB connection (env vars)
     PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=myuser PG_PASSWORD=secret \\
       ./token.sh add "my-client"
 
@@ -256,13 +387,16 @@ EOF
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 case "${1:-help}" in
   list)      cmd_list ;;
-  add)       cmd_add      "${2:-}" ;;
-  delete)    cmd_delete   "${2:-}" ;;
-  enable)    cmd_enable   "${2:-}" ;;
-  disable)   cmd_disable  "${2:-}" ;;
-  rename)    cmd_rename   "${2:-}" "${3:-}" ;;
-  setconn)   cmd_setconn  "${2:-}" "${3:-}" ;;
+  show)      cmd_show      "${2:-}" ;;
+  add)       cmd_add       "${@:2}" ;;
+  delete)    cmd_delete    "${2:-}" ;;
+  enable)    cmd_enable    "${2:-}" ;;
+  disable)   cmd_disable   "${2:-}" ;;
+  rename)    cmd_rename    "${2:-}" "${3:-}" ;;
+  setconn)   cmd_setconn   "${2:-}" "${3:-}" ;;
   clearconn) cmd_clearconn "${2:-}" ;;
+  health)    cmd_health ;;
+  info)      cmd_info ;;
   help|--help|-h) cmd_help ;;
   *) die "Unknown command: ${1}\nHelp: ./token.sh help" ;;
 esac
