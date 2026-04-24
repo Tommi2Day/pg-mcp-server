@@ -229,6 +229,8 @@ export async function handleAdminRequest(req, res) {
     res.writeHead(405, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Method Not Allowed" }));
   } catch (err) {
+    console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}" error=${JSON.stringify(err.message)}`);
+    if (err.stack) console.error(err.stack);
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }

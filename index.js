@@ -48,6 +48,9 @@ if (isMain) {
     connectionTimeoutMillis: 10000,
     max: 5,
   });
+  pool.on?.("error", (err) => {
+    console.error(`[${new Date().toISOString()}] [DB] Pool error: ${err.message}`);
+  });
 }
 
 // ── Per-token pool cache ──────────────────────────────────────────────────────
@@ -64,7 +67,7 @@ export function getPool(connection) {
   if (!connection) return pool;
   const key = JSON.stringify(connection);
   if (!poolCache.has(key)) {
-    poolCache.set(key, new Pool({
+    const p = new Pool({
       host:     connection.host     || process.env.PG_HOST     || "localhost",
       port:     parseInt(connection.port     || process.env.PG_PORT     || "5432"),
       database: connection.database || process.env.PG_DATABASE || "postgres",
@@ -73,7 +76,11 @@ export function getPool(connection) {
       ssl:      sslFromValue(connection.ssl),
       connectionTimeoutMillis: 10000,
       max: 5,
-    }));
+    });
+    p.on?.("error", (err) => {
+      console.error(`[${new Date().toISOString()}] [DB] Pool error (${connection.host || "default"}): ${err.message}`);
+    });
+    poolCache.set(key, p);
   }
   return poolCache.get(key);
 }
@@ -227,7 +234,9 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (err) {
-      return { content: [{ type: "text", text: `❌ Error: ${err?.message || err?.toString() || JSON.stringify(err)}` }], isError: true };
+      const msg = err?.message || err?.toString() || JSON.stringify(err);
+      console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}" ip="${clientIp}" error=${JSON.stringify(msg)}`);
+      return { content: [{ type: "text", text: `❌ Error: ${msg}` }], isError: true };
     }
   });
 
@@ -239,12 +248,26 @@ export const sessions = new Map(); // sessionId → StreamableHTTPServerTranspor
 
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
 export async function handleRequest(req, res) {
+  try {
+    await _handleRequest(req, res);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] [HTTP] Unhandled error for ${req.method} ${req.url}: ${err.message}`);
+    if (err.stack) console.error(err.stack);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    }
+  }
+}
+
+async function _handleRequest(req, res) {
   if ((req.url === "/admin" || req.url === "/admin/") && req.method === "GET") {
     try {
       const html = fs.readFileSync(new URL("./admin.html", import.meta.url));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
-    } catch {
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] [HTTP] Failed to read admin.html: ${err.message}`);
       res.writeHead(404);
       res.end("Admin UI not found");
     }
@@ -301,6 +324,20 @@ export async function handleRequest(req, res) {
   }
   res.writeHead(404);
   res.end("Not found");
+}
+
+// ── Process-level error handlers (only when run directly) ────────────────────
+if (isMain) {
+  process.on("unhandledRejection", (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    console.error(`[${new Date().toISOString()}] [FATAL] Unhandled rejection: ${msg}`);
+    if (reason instanceof Error && reason.stack) console.error(reason.stack);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(`[${new Date().toISOString()}] [FATAL] Uncaught exception: ${err.message}`);
+    if (err.stack) console.error(err.stack);
+    process.exit(1);
+  });
 }
 
 // ── Transport selection (only when run directly) ──────────────────────────────
