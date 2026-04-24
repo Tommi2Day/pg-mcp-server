@@ -439,20 +439,33 @@ EOF
 > ```
 
 ```bash
-./scripts/token.sh list                     # list all tokens (with connection info)
+# Server info (no AUTH_TOKEN required)
+./scripts/token.sh health                   # server health status + TLS flag
+./scripts/token.sh info                     # server version + default DB connection
+
+# Token management
+./scripts/token.sh list                     # list all tokens (CONN column shows per-token connection)
+./scripts/token.sh show <id>                # full details for one token, including connection config
 ./scripts/token.sh add "claude-desktop"     # create new token (plaintext shown once)
 ./scripts/token.sh delete <id>              # deactivate token
 ./scripts/token.sh disable <id>             # temporarily block
 ./scripts/token.sh enable  <id>             # re-enable
 ./scripts/token.sh rename  <id> <new-name>  # rename
 
-# Per-token database connection
+# Per-token database connection — pass flags or env vars (flags take precedence)
+./scripts/token.sh add "mydb-client" \
+  --host db.example.com --database mydb --user u --password p --ssl false
+
+# env-var form still works:
 PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=u PG_PASSWORD=p \
-  ./scripts/token.sh add "mydb-client"      # create token with custom connection
+  ./scripts/token.sh add "mydb-client"
 
 ./scripts/token.sh setconn <id> '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
 ./scripts/token.sh clearconn <id>           # reset to default admin connection
 ```
+
+`add` connection flags: `--host`, `--port`, `--database`, `--user`, `--password`, `--ssl`.  
+Flags take precedence over the corresponding `PG_*` env vars. Omit all connection arguments to use the server's default admin connection.
 
 ### Validate a token with `test_token.sh`
 
@@ -519,17 +532,27 @@ curl -X DELETE http://localhost:3000/admin/tokens/<id> \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
-### Connection logging
+### Logging
 
-Every authenticated request is logged to stderr with a timestamp, the token name, action, client IP, and tool parameters:
+All log lines go to **stderr** and are visible in `docker logs <name>`. Each line carries an ISO 8601 timestamp and a bracketed prefix:
 
 ```
 [2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables" ip="192.168.1.10" params={"schema":"public"}
+[2026-03-28T19:32:51.859Z] [MCP]   token="claude-desktop" action="query" ip="192.168.1.10" error="column \"x\" does not exist"
 [2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
+[2026-03-28T19:32:52.001Z] [ADMIN] token="admin"          action="GET /admin/tokens" ip="192.168.1.10" error="ENOENT: ..."
+[2026-03-28T19:32:52.100Z] [DB]    Pool error: Connection terminated unexpectedly
+[2026-03-28T19:32:52.200Z] [HTTP]  Unhandled error for POST /mcp: socket hang up
+[2026-03-28T19:33:00.000Z] [FATAL] Unhandled rejection: getaddrinfo ENOTFOUND db.example.com
 ```
 
-- `[MCP]` — MCP tool calls; token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's name; `params` is omitted for tools with no arguments
-- `[ADMIN]` — admin API requests; always `token="admin"`
+| Prefix | When |
+|--------|------|
+| `[MCP]` | MCP tool call (success and error). Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's name. `params` is omitted for tools with no arguments. |
+| `[ADMIN]` | Admin API request. Always `token="admin"`. Errors include `error="..."`. |
+| `[DB]` | Idle pool error (e.g. dropped connection) from the default or a per-token pool. |
+| `[HTTP]` | Unhandled error in the HTTP request handler, or failure to read `admin.html`. |
+| `[FATAL]` | Unhandled promise rejection or uncaught exception — the process exits after logging. |
 
 The client IP is resolved in order: `x-real-ip` header → first entry of `x-forwarded-for` → TCP socket address. When running Docker without a reverse proxy, the socket address is the Docker bridge IP — deploy behind nginx or Traefik to log the real client IP.
 
