@@ -267,7 +267,7 @@ cmd_delete_token() {
   local raw body
   raw=$(api DELETE "${API}/${id}")
   body=$(check_response "$raw")
-  echo "✅ Token ${id} deactivated."
+  echo "✅ Token ${id} deleted."
 }
 
 cmd_enable_token() {
@@ -351,7 +351,7 @@ pg-mcp-server admin CLI
                [--user U]       the server's default admin connection)
                [--password P]
                [--ssl S]
-    delete-token <id>            Permanently deactivate a token
+    delete-token <id>            Permanently delete a token
     enable-token <id>            Re-enable a token
     disable-token <id>           Temporarily disable a token
     rename-token <id> <name>     Rename a token

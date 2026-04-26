@@ -774,7 +774,7 @@ function renderTokens() {
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </button>
-          <button class="btn-icon danger" onclick="openDeleteModal(${t.id})" title="Deactivate token">
+          <button class="btn-icon danger" onclick="openDeleteModal(${t.id})" title="Delete token">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14H6L5 6"/>
@@ -899,35 +899,31 @@ async function submitEdit(id) {
   }
 }
 
-// ── Delete / deactivate ───────────────────────────────────────────────────────
+// ── Delete ────────────────────────────────────────────────────────────────────
 function openDeleteModal(id) {
   const t = state.tokens.find(t => t.id === id);
   if (!t) return;
   const body = `
     <div class="delete-warning">
-      Deactivating <strong>${x(t.name)}</strong> will immediately revoke access for any client using this token.
+      Deleting <strong>${x(t.name)}</strong> will permanently remove this token and immediately revoke access for any client using it.
     </div>
-    <p style="font-size:.8125rem;color:var(--text-muted)">
-      The token record will remain in the store with <em>active = false</em>.
-      You can re-enable it later via the edit button.
-    </p>`;
-  showModal('Deactivate Token', body, [
-    { label: 'Cancel',     cls: 'btn-cancel',     fn: 'closeModal()' },
-    { label: 'Deactivate', cls: 'btn-deactivate', fn: `submitDelete(${id})`, id: 'modal-primary' },
+    <p style="font-size:.8125rem;color:var(--text-muted)">This action cannot be undone.</p>`;
+  showModal('Delete Token', body, [
+    { label: 'Cancel', cls: 'btn-cancel',     fn: 'closeModal()' },
+    { label: 'Delete', cls: 'btn-deactivate', fn: `submitDelete(${id})`, id: 'modal-primary' },
   ]);
 }
 
 async function submitDelete(id) {
   const btn = document.getElementById('modal-primary');
-  btn.disabled = true; btn.textContent = 'Deactivating…';
+  btn.disabled = true; btn.textContent = 'Deleting…';
   try {
     await api('DELETE', `/admin/tokens/${id}`);
-    const t = state.tokens.find(t => t.id === id);
-    if (t) t.active = false;
+    state.tokens = state.tokens.filter(t => t.id !== id);
     renderTokens();
     closeModal();
   } catch (e) {
-    btn.disabled = false; btn.textContent = 'Deactivate';
+    btn.disabled = false; btn.textContent = 'Delete';
     showAlert(document.getElementById('modal-alert'), e.message);
   }
 }

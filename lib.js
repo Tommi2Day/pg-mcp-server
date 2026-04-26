@@ -210,16 +210,16 @@ export async function handleAdminRequest(req, res) {
       return;
     }
 
-    // DELETE /admin/tokens/:id – deactivate token
+    // DELETE /admin/tokens/:id – permanently remove token
     if (req.method === "DELETE" && id) {
       const store = loadTokenStore();
-      const entry = store.tokens.find(t => t.id === id);
-      if (!entry) {
+      const idx = store.tokens.findIndex(t => t.id === id);
+      if (idx === -1) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not found" }));
         return;
       }
-      entry.active = false;
+      store.tokens.splice(idx, 1);
       saveTokenStore(store);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, id }));

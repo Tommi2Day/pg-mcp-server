@@ -213,7 +213,7 @@ describe("handleAdminRequest", () => {
   });
 
   // ── DELETE /admin/tokens/:id ────────────────────────────────────────────────
-  it("DELETE deactivates a token", async () => {
+  it("DELETE permanently removes a token", async () => {
     const tokens = [
       { id: 5, name: "tok", token_hash: "h", active: true,
         created_at: "2025-01-01T00:00:00Z", last_used_at: null, connection: null },
@@ -224,7 +224,7 @@ describe("handleAdminRequest", () => {
     await handleAdminRequest(req, res);
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
     expect(resBody(res)).toEqual({ ok: true, id: 5 });
-    expect(writtenStore().tokens[0].active).toBe(false);
+    expect(writtenStore().tokens).toHaveLength(0);
   });
 
   it("DELETE returns 404 when token is not found", async () => {

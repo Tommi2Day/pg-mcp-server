@@ -485,7 +485,7 @@ Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage 
 - **Token list**: see all tokens with status (active/inactive), connection info, and last-used timestamp.
 - **Create token**: enter a name and optionally configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
 - **Edit token**: rename a token, toggle its active state, or update its database connection.
-- **Deactivate token**: revokes access immediately; the record is kept in the store with `active = false`.
+- **Delete token**: permanently removes the token record and immediately revokes access.
 
 The session is stored in `sessionStorage` (cleared when the browser tab is closed).
 
@@ -524,7 +524,7 @@ EOF
 ./scripts/admincli.sh list-tokens                   # list all tokens (CONN column shows per-token connection)
 ./scripts/admincli.sh show-token <id>               # full details for one token, including connection config
 ./scripts/admincli.sh add-token "claude-desktop"    # create new token (plaintext shown once)
-./scripts/admincli.sh delete-token <id>             # deactivate token
+./scripts/admincli.sh delete-token <id>             # permanently delete token
 ./scripts/admincli.sh disable-token <id>            # temporarily block
 ./scripts/admincli.sh enable-token  <id>            # re-enable
 ./scripts/admincli.sh rename-token  <id> <new-name> # rename
@@ -604,7 +604,7 @@ curl -X PATCH http://localhost:3000/admin/tokens/<id> \
   -H "Content-Type: application/json" \
   -d '{"name": "new-name", "active": true}'
 
-# Deactivate token
+# Delete token (permanently removed)
 curl -X DELETE http://localhost:3000/admin/tokens/<id> \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
@@ -730,7 +730,7 @@ All scripts require only Docker — no local Node.js needed.
 | `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
 | `POST /admin/tokens` | Admin token only | Create token; optional `connection` object |
 | `PATCH /admin/tokens/:id` | Admin token only | Update `name`, `active`, and/or `connection` |
-| `DELETE /admin/tokens/:id` | Admin token only | Deactivate token |
+| `DELETE /admin/tokens/:id` | Admin token only | Permanently delete token |
 
 ### `GET /info`
 
