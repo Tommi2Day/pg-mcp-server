@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Token management for pg-mcp-server
+# Admin CLI for pg-mcp-server
 #
 # Prerequisites:
 #   AUTH_TOKEN  – Admin token (env var or .env file)
 #   MCP_URL     – Server URL (default: http://localhost:3000)
 #
 # Usage:
-#   ./token.sh list
-#   ./token.sh show    <id>
-#   ./token.sh add <name>
-#   ./token.sh delete <id>
-#   ./token.sh enable  <id>
-#   ./token.sh disable <id>
-#   ./token.sh rename  <id> <new-name>
-#   ./token.sh setconn <id> '<json>'   # set per-token DB connection
-#   ./token.sh clearconn <id>          # reset to default admin connection
-#   ./token.sh health                  # server health check
-#   ./token.sh info                    # server / DB info
+#   ./admincli.sh list-tokens
+#   ./admincli.sh show-token    <id>
+#   ./admincli.sh add-token    <name>
+#   ./admincli.sh delete-token <id>
+#   ./admincli.sh enable-token  <id>
+#   ./admincli.sh disable-token <id>
+#   ./admincli.sh rename-token  <id> <new-name>
+#   ./admincli.sh set-conn     <id> '<json>'   # set per-token DB connection
+#   ./admincli.sh clear-conn   <id>            # reset to default admin connection
+#   ./admincli.sh health                        # server health check
+#   ./admincli.sh info                          # server / DB info
 set -eo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ pretty() {
 _py3() { command -v python3 >/dev/null 2>&1; }
 
 # ── Subcommands ───────────────────────────────────────────────────────────────
-cmd_list() {
+cmd_list_tokens() {
   require_token
   local raw body
   raw=$(api GET "$API")
@@ -118,9 +118,9 @@ PYEOF
   echo ""
 }
 
-cmd_show() {
+cmd_show_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh show <id>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh show-token <id>"
   local id="$1"
 
   local raw body
@@ -201,9 +201,9 @@ PYEOF
   fi
 }
 
-cmd_add() {
+cmd_add_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh add <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S]"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh add-token <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S]"
   local name="$1"; shift
 
   # Parse optional flags; flags take precedence over env vars
@@ -259,9 +259,9 @@ cmd_add() {
   fi
 }
 
-cmd_delete() {
+cmd_delete_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh delete <id>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh delete-token <id>"
   local id="$1"
 
   local raw body
@@ -270,9 +270,9 @@ cmd_delete() {
   echo "✅ Token ${id} deactivated."
 }
 
-cmd_enable() {
+cmd_enable_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh enable <id>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh enable-token <id>"
   local id="$1"
 
   local raw body
@@ -281,9 +281,9 @@ cmd_enable() {
   echo "✅ Token ${id} enabled."
 }
 
-cmd_disable() {
+cmd_disable_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh disable <id>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh disable-token <id>"
   local id="$1"
 
   local raw body
@@ -292,10 +292,10 @@ cmd_disable() {
   echo "✅ Token ${id} disabled."
 }
 
-cmd_rename() {
+cmd_rename_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh rename <id> <new-name>"
-  [ -n "${2:-}" ] || die "Usage: ./token.sh rename <id> <new-name>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh rename-token <id> <new-name>"
+  [ -n "${2:-}" ] || die "Usage: ./admincli.sh rename-token <id> <new-name>"
   local id="$1" name="$2"
 
   local raw body
@@ -304,10 +304,10 @@ cmd_rename() {
   echo "✅ Token ${id} renamed to \"${name}\"."
 }
 
-cmd_setconn() {
+cmd_set_conn() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh setconn <id> '<json>'"
-  [ -n "${2:-}" ] || die "Usage: ./token.sh setconn <id> '<json>'"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh set-conn <id> '<json>'"
+  [ -n "${2:-}" ] || die "Usage: ./admincli.sh set-conn <id> '<json>'"
   local id="$1" json="$2"
 
   local raw body
@@ -317,9 +317,9 @@ cmd_setconn() {
   pretty "$body"
 }
 
-cmd_clearconn() {
+cmd_clear_conn() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./token.sh clearconn <id>"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh clear-conn <id>"
   local id="$1"
 
   local raw body
@@ -331,72 +331,72 @@ cmd_clearconn() {
 cmd_help() {
   cat <<EOF
 
-pg-mcp-server token management
+pg-mcp-server admin CLI
 
   Configuration (env vars or scripts/.env):
     AUTH_TOKEN   Admin token (required for token commands)
     MCP_URL      Server URL  (default: http://localhost:3000)
 
   Server commands (no AUTH_TOKEN needed):
-    health                  Show server health status
-    info                    Show server version and DB connection info
+    health                       Show server health status
+    info                         Show server version and DB connection info
 
   Token commands:
-    list                    List all tokens
-    show   <id>             Show details of a single token (incl. connection)
-    add    <name>           Create a new token
-             [--host H]    Per-token DB connection (flags take precedence
-             [--port P]    over PG_HOST/PG_PORT/PG_DATABASE/PG_USER/
-             [--database D] PG_PASSWORD/PG_SSL env vars; omit all to use
-             [--user U]    the server's default admin connection)
-             [--password P]
-             [--ssl S]
-    delete <id>             Permanently deactivate a token
-    enable <id>             Re-enable a token
-    disable <id>            Temporarily disable a token
-    rename <id> <name>      Rename a token
-    setconn <id> '<json>'   Set a custom DB connection for a token
-                            JSON: {"host":"h","port":5432,"database":"d","user":"u","password":"p","ssl":"false"}
-    clearconn <id>          Clear per-token connection (falls back to admin DB)
+    list-tokens                  List all tokens
+    show-token   <id>            Show details of a single token (incl. connection)
+    add-token    <name>          Create a new token
+               [--host H]       Per-token DB connection (flags take precedence
+               [--port P]       over PG_HOST/PG_PORT/PG_DATABASE/PG_USER/
+               [--database D]   PG_PASSWORD/PG_SSL env vars; omit all to use
+               [--user U]       the server's default admin connection)
+               [--password P]
+               [--ssl S]
+    delete-token <id>            Permanently deactivate a token
+    enable-token <id>            Re-enable a token
+    disable-token <id>           Temporarily disable a token
+    rename-token <id> <name>     Rename a token
+    set-conn     <id> '<json>'   Set a custom DB connection for a token
+                                 JSON: {"host":"h","port":5432,"database":"d","user":"u","password":"p","ssl":"false"}
+    clear-conn   <id>            Clear per-token connection (falls back to admin DB)
 
   Examples:
     export AUTH_TOKEN=<admin-token>
-    ./token.sh health
-    ./token.sh info
-    ./token.sh list
-    ./token.sh show 2
-    ./token.sh add "claude-desktop"
-    ./token.sh delete 3
+    ./admincli.sh health
+    ./admincli.sh info
+    ./admincli.sh list-tokens
+    ./admincli.sh show-token 2
+    ./admincli.sh add-token "claude-desktop"
+    ./admincli.sh delete-token 3
 
     # Create token with custom DB connection (flags)
-    ./token.sh add "my-client" --host db.example.com --database mydb --user myuser --password secret
+    ./admincli.sh add-token "my-client" --host db.example.com --database mydb --user myuser --password secret
 
     # Create token with custom DB connection (env vars)
     PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=myuser PG_PASSWORD=secret \\
-      ./token.sh add "my-client"
+      ./admincli.sh add-token "my-client"
 
     # Update connection on existing token
-    ./token.sh setconn 2 '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
+    ./admincli.sh set-conn 2 '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
 
     # Reset to default admin connection
-    ./token.sh clearconn 2
+    ./admincli.sh clear-conn 2
 
 EOF
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 case "${1:-help}" in
-  list)      cmd_list ;;
-  show)      cmd_show      "${2:-}" ;;
-  add)       cmd_add       "${@:2}" ;;
-  delete)    cmd_delete    "${2:-}" ;;
-  enable)    cmd_enable    "${2:-}" ;;
-  disable)   cmd_disable   "${2:-}" ;;
-  rename)    cmd_rename    "${2:-}" "${3:-}" ;;
-  setconn)   cmd_setconn   "${2:-}" "${3:-}" ;;
-  clearconn) cmd_clearconn "${2:-}" ;;
-  health)    cmd_health ;;
-  info)      cmd_info ;;
+  list-tokens)   cmd_list_tokens ;;
+  show-token)    cmd_show_token    "${2:-}" ;;
+  add-token)     cmd_add_token     "${@:2}" ;;
+  delete-token)  cmd_delete_token  "${2:-}" ;;
+  enable-token)  cmd_enable_token  "${2:-}" ;;
+  disable-token) cmd_disable_token "${2:-}" ;;
+  rename-token)  cmd_rename_token  "${2:-}" "${3:-}" ;;
+  set-conn)      cmd_set_conn      "${2:-}" "${3:-}" ;;
+  clear-conn)    cmd_clear_conn    "${2:-}" ;;
+  health)        cmd_health ;;
+  info)          cmd_info ;;
   help|--help|-h) cmd_help ;;
-  *) die "Unknown command: ${1}\nHelp: ./token.sh help" ;;
+  *) die "Unknown command: ${1}\nHelp: ./admincli.sh help" ;;
 esac

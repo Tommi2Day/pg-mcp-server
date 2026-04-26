@@ -58,7 +58,7 @@ BODY=$(echo "$RAW" | awk 'found{print} /^$/{found=1}' | head -n -1)
 # ── Auth / connectivity check on initialize ───────────────────────────────────
 case "$STATUS" in
   000) die "Server unreachable: $BASE_URL\nIs the server running? (docker ps / docker compose ps)" ;;
-  401) die "Token invalid or expired (HTTP 401).\nCheck tokens: ./token.sh list" ;;
+  401) die "Token invalid or expired (HTTP 401).\nCheck tokens: ./admincli.sh list-tokens" ;;
   403) die "Token not authorized for /mcp (HTTP 403)." ;;
   503) die "Server error (HTTP 503): AUTH_TOKEN not configured on the server." ;;
   200) ;; # ok, continue
