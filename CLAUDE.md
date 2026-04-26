@@ -32,7 +32,7 @@ docker compose up -d                       # MCP server + postgres-test containe
 docker compose down
 
 # Token management
-./scripts/token.sh list|add|delete|enable|disable|rename|setconn|clearconn
+./scripts/admincli.sh list-tokens|add-token|delete-token|enable-token|disable-token|rename-token|set-conn|clear-conn
 ./scripts/test_token.sh <token> [schema]   # validate token + list tables
 
 # Helm

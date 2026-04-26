@@ -417,9 +417,9 @@ The session is stored in `sessionStorage` (cleared when the browser tab is close
 Tokens are persisted in a JSON file (default `./tokens.json`, configurable via `TOKENS_FILE`).  
 **Mount a volume** at the file's directory so tokens survive container restarts — see the Docker and Helm sections above.
 
-### Manage tokens with `token.sh`
+### Manage tokens with `admincli.sh`
 
-`token.sh` reads `AUTH_TOKEN` and `MCP_URL` from environment variables or from a `scripts/.env` file:
+`admincli.sh` reads `AUTH_TOKEN` and `MCP_URL` from environment variables or from a `scripts/.env` file:
 
 ```bash
 # Option A – environment variables
@@ -440,31 +440,31 @@ EOF
 
 ```bash
 # Server info (no AUTH_TOKEN required)
-./scripts/token.sh health                   # server health status + TLS flag
-./scripts/token.sh info                     # server version + default DB connection
+./scripts/admincli.sh health                        # server health status + TLS flag
+./scripts/admincli.sh info                          # server version + default DB connection
 
 # Token management
-./scripts/token.sh list                     # list all tokens (CONN column shows per-token connection)
-./scripts/token.sh show <id>                # full details for one token, including connection config
-./scripts/token.sh add "claude-desktop"     # create new token (plaintext shown once)
-./scripts/token.sh delete <id>              # deactivate token
-./scripts/token.sh disable <id>             # temporarily block
-./scripts/token.sh enable  <id>             # re-enable
-./scripts/token.sh rename  <id> <new-name>  # rename
+./scripts/admincli.sh list-tokens                   # list all tokens (CONN column shows per-token connection)
+./scripts/admincli.sh show-token <id>               # full details for one token, including connection config
+./scripts/admincli.sh add-token "claude-desktop"    # create new token (plaintext shown once)
+./scripts/admincli.sh delete-token <id>             # deactivate token
+./scripts/admincli.sh disable-token <id>            # temporarily block
+./scripts/admincli.sh enable-token  <id>            # re-enable
+./scripts/admincli.sh rename-token  <id> <new-name> # rename
 
 # Per-token database connection — pass flags or env vars (flags take precedence)
-./scripts/token.sh add "mydb-client" \
+./scripts/admincli.sh add-token "mydb-client" \
   --host db.example.com --database mydb --user u --password p --ssl false
 
 # env-var form still works:
 PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=u PG_PASSWORD=p \
-  ./scripts/token.sh add "mydb-client"
+  ./scripts/admincli.sh add-token "mydb-client"
 
-./scripts/token.sh setconn <id> '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
-./scripts/token.sh clearconn <id>           # reset to default admin connection
+./scripts/admincli.sh set-conn <id> '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
+./scripts/admincli.sh clear-conn <id>               # reset to default admin connection
 ```
 
-`add` connection flags: `--host`, `--port`, `--database`, `--user`, `--password`, `--ssl`.  
+`add-token` connection flags: `--host`, `--port`, `--database`, `--user`, `--password`, `--ssl`.  
 Flags take precedence over the corresponding `PG_*` env vars. Omit all connection arguments to use the server's default admin connection.
 
 ### Validate a token with `test_token.sh`
