@@ -199,6 +199,83 @@ On startup:
 
 Once running, open `http://localhost:3000/admin` to manage tokens via the web UI.
 
+### Traefik reverse proxy (optional)
+
+Route traffic through Traefik with automatic HTTP → HTTPS redirect and Let's Encrypt TLS.  
+TLS terminates at Traefik — keep `TLS_ENABLED=false` inside the container.
+
+Both variants require the `traefik-public` external network (created by your Traefik stack).  
+Add it to the `pg-mcp-server` service networks list:
+
+```yaml
+networks:
+  - mcp-net
+  - traefik-public
+```
+
+And declare it in the top-level `networks:` section:
+
+```yaml
+networks:
+  mcp-net:
+    driver: bridge
+  traefik-public:
+    external: true
+```
+
+#### Host-based routing
+
+Dedicated domain for the MCP server (e.g. `pg-mcp.example.com`):
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  # HTTP → HTTPS redirect
+  - "traefik.http.routers.pg-mcp-http.rule=Host(`pg-mcp.example.com`)"
+  - "traefik.http.routers.pg-mcp-http.entrypoints=web"
+  - "traefik.http.routers.pg-mcp-http.middlewares=pg-mcp-https-redirect"
+  - "traefik.http.middlewares.pg-mcp-https-redirect.redirectscheme.scheme=https"
+  - "traefik.http.middlewares.pg-mcp-https-redirect.redirectscheme.permanent=true"
+  # HTTPS router
+  - "traefik.http.routers.pg-mcp.rule=Host(`pg-mcp.example.com`)"
+  - "traefik.http.routers.pg-mcp.entrypoints=websecure"
+  - "traefik.http.routers.pg-mcp.tls=true"
+  - "traefik.http.routers.pg-mcp.tls.certresolver=letsencrypt"
+  - "traefik.http.services.pg-mcp.loadbalancer.server.port=3000"
+  - "traefik.docker.network=traefik-public"
+```
+
+MCP URL: `https://pg-mcp.example.com/mcp`
+
+#### Path-based routing
+
+Sub-path on a shared domain (e.g. `https://proxy.example.com/pg-mcp`).  
+Traefik strips the `/pg-mcp` prefix before forwarding, so the container still receives requests at `/mcp`, `/admin/tokens`, etc. unchanged.
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  # HTTP → HTTPS redirect
+  - "traefik.http.routers.pg-mcp-http.rule=PathPrefix(`/pg-mcp`)"
+  - "traefik.http.routers.pg-mcp-http.entrypoints=web"
+  - "traefik.http.routers.pg-mcp-http.middlewares=pg-mcp-https-redirect"
+  - "traefik.http.middlewares.pg-mcp-https-redirect.redirectscheme.scheme=https"
+  - "traefik.http.middlewares.pg-mcp-https-redirect.redirectscheme.permanent=true"
+  # HTTPS router — strip prefix, then forward to container
+  - "traefik.http.routers.pg-mcp.rule=PathPrefix(`/pg-mcp`)"
+  - "traefik.http.routers.pg-mcp.entrypoints=websecure"
+  - "traefik.http.routers.pg-mcp.tls=true"
+  - "traefik.http.routers.pg-mcp.tls.certresolver=letsencrypt"
+  - "traefik.http.routers.pg-mcp.middlewares=pg-mcp-strip"
+  - "traefik.http.middlewares.pg-mcp-strip.stripprefix.prefixes=/pg-mcp"
+  - "traefik.http.services.pg-mcp.loadbalancer.server.port=3000"
+  - "traefik.docker.network=traefik-public"
+```
+
+MCP URL: `https://proxy.example.com/pg-mcp/mcp`
+
+For `run.sh` / `docker run`, translate each label to a `--label` flag.
+
 ### Connect Claude Desktop / `.mcp.json`
 
 ```json
