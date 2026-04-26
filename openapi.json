@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PostgreSQL MCP Server",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "description": "REST API for the PostgreSQL MCP Server. Exposes a health endpoint, MCP Streamable-HTTP transport, and an admin API for token management. Tokens and their optional per-token database connections are stored in a local JSON file (TOKENS_FILE)."
   },
   "servers": [
