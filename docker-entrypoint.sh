@@ -46,5 +46,11 @@ else
   echo "ℹ️  TLS disabled – running plain HTTP."
 fi
 
+# Ensure the token store directory is writable by the node user (uid 1000).
+# Named Docker volumes are created owned by root; chown before dropping privileges.
+_data_dir="$(dirname "${TOKENS_FILE:-/data/tokens.json}")"
+mkdir -p "$_data_dir"
+chown node:node "$_data_dir"
+
 # Drop from root to node user
 exec su-exec node node index.js
