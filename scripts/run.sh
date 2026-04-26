@@ -26,19 +26,19 @@ PG_USER=${PGUSER:-postgres}
 PG_PASSWORD=${PGPASSWORD:-}
 MCP_PORT=${MCP_PORT:-3000}
 docker pull tommi2day/pg-mcp-server:latest
-docker run -d --name $NAME \
-  -p $MCP_PORT:3000 \
+docker run -d --name "$NAME" \
+  -p "$MCP_PORT:3000" \
   -e TRANSPORT=http \
-  -e AUTH_TOKEN=$AUTH_TOKEN \
+  -e "AUTH_TOKEN=$AUTH_TOKEN" \
   -e TOKENS_FILE=/data/tokens.json \
-  -e PG_HOST=$PG_HOST \
-  -e PG_PORT=$PG_PORT \
-  -e PG_DATABASE=$PG_DATABASE \
-  -e PG_USER=$PG_USER \
-  -e PG_PASSWORD=$PG_PASSWORD \
-  -e PG_SSL=${PG_SSL:-false} \
-  -v ${NAME}-data:/data \
+  -e "PG_HOST=$PG_HOST" \
+  -e "PG_PORT=$PG_PORT" \
+  -e "PG_DATABASE=$PG_DATABASE" \
+  -e "PG_USER=$PG_USER" \
+  -e "PG_PASSWORD=$PG_PASSWORD" \
+  -e "PG_SSL=${PG_SSL:-false}" \
+  -v "${NAME}-data:/data" \
   tommi2day/pg-mcp-server:latest
 
 sleep 10
-docker logs $NAME
+docker logs "$NAME"
