@@ -25,6 +25,7 @@ PG_DATABASE=${PGDATABASE:-postgres}
 PG_USER=${PGUSER:-postgres}
 PG_PASSWORD=${PGPASSWORD:-}
 MCP_PORT=${MCP_PORT:-3000}
+MCP_SERVER_NAME=${MCP_SERVER_NAME:-}
 docker pull tommi2day/pg-mcp-server:latest
 docker run -d --name "$NAME" \
   -p "$MCP_PORT:3000" \
@@ -37,6 +38,7 @@ docker run -d --name "$NAME" \
   -e "PG_USER=$PG_USER" \
   -e "PG_PASSWORD=$PG_PASSWORD" \
   -e "PG_SSL=${PG_SSL:-false}" \
+  ${MCP_SERVER_NAME:+-e "MCP_SERVER_NAME=$MCP_SERVER_NAME"} \
   -v "${NAME}-data:/data" \
   tommi2day/pg-mcp-server:latest
 
