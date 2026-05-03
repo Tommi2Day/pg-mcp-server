@@ -154,14 +154,11 @@ spec:
           {{- end }}
         {{- if .Values.server.tlsEnabled }}
         - name: certs
-          {{- if .Values.tls.existingSecret }}
+          {{- if or .Values.tls.existingSecret (and .Values.tls.cert .Values.tls.key) }}
           secret:
-            secretName: {{ .Values.tls.existingSecret }}
-          {{- else if and .Values.tls.cert .Values.tls.key }}
-          secret:
-            secretName: {{ include "pg-mcp-server.fullname" . }}-tls
+            secretName: {{ .Values.tls.existingSecret | default (printf "%s-tls" (include "pg-mcp-server.fullname" .)) }}
           {{- else }}
-          emptyDir: {}   # entrypoint generates self-signed cert at startup
+          emptyDir: {}
           {{- end }}
         {{- end }}
         {{- if .Values.tls.pgCaSecret }}

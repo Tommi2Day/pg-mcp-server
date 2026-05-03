@@ -151,15 +151,19 @@
                     }
                   }
                 },
-                "example": {
-                  "name": "pg-mcp-server",
-                  "version": "0.0.13",
-                  "db": {
-                    "host": "localhost",
-                    "port": 5432,
-                    "database": "postgres",
-                    "user": "postgres",
-                    "ssl": "false"
+                "examples": {
+                  "default": {
+                    "value": {
+                      "name": "pg-mcp-server",
+                      "version": "0.0.13",
+                      "db": {
+                        "host": "localhost",
+                        "port": 5432,
+                        "database": "postgres",
+                        "user": "postgres",
+                        "ssl": "false"
+                      }
+                    }
                   }
                 }
               }
@@ -192,9 +196,13 @@
                     }
                   }
                 },
-                "example": {
-                  "status": "ok",
-                  "tls": false
+                "examples": {
+                  "default": {
+                    "value": {
+                      "status": "ok",
+                      "tls": false
+                    }
+                  }
                 }
               }
             }
@@ -247,16 +255,20 @@
                   }
                 }
               },
-              "example": {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                  "protocolVersion": "2024-11-05",
-                  "capabilities": {},
-                  "clientInfo": {
-                    "name": "my-client",
-                    "version": "1.0"
+              "examples": {
+                "initialize": {
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                      "protocolVersion": "2024-11-05",
+                      "capabilities": {},
+                      "clientInfo": {
+                        "name": "my-client",
+                        "version": "1.0"
+                      }
+                    }
                   }
                 }
               }
@@ -371,8 +383,12 @@
                   "name"
                 ]
               },
-              "example": {
-                "name": "claude-desktop"
+              "examples": {
+                "default": {
+                  "value": {
+                    "name": "claude-desktop"
+                  }
+                }
               }
             }
           }
@@ -466,8 +482,12 @@
                   }
                 }
               },
-              "example": {
-                "name": "new-name"
+              "examples": {
+                "default": {
+                  "value": {
+                    "name": "new-name"
+                  }
+                }
               }
             }
           }
