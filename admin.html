@@ -660,7 +660,6 @@
   </div>
 </div>
 
-<script>window.__SERVER_INFO__ = __SERVER_INFO__;</script>
 <script>
 'use strict';
 
@@ -747,14 +746,11 @@ function showMain() {
   renderTokens();
 }
 
-function loadServerInfo() {
+async function loadServerInfo() {
   try {
-    const info = window.__SERVER_INFO__;
-    state.serverInfo = (info && typeof info === 'object') ? info : null;
-  } catch (e) {
-    state.serverInfo = null;
-  }
-  renderServerInfo();
+    state.serverInfo = await api('GET', '/info');
+    renderServerInfo();
+  } catch (e) {}
 }
 
 function renderServerInfo() {

@@ -40,21 +40,7 @@ const mcpServerName = process.env.MCP_SERVER_NAME || "pg-mcp-server";
 let cachedAdminHtml;
 try {
   const raw = fs.readFileSync(new URL("./admin.html", import.meta.url), "utf8");
-  const serverInfoJson = JSON.stringify({
-    name: mcpServerName,
-    version,
-    db: {
-      host:     process.env.PG_HOST     || "localhost",
-      port:     parseInt(process.env.PG_PORT || "5432"),
-      database: process.env.PG_DATABASE || "postgres",
-      user:     process.env.PG_USER     || "postgres",
-      ssl:      process.env.PG_SSL      || "false",
-    },
-  });
-  cachedAdminHtml = Buffer.from(
-    raw.replaceAll("__SERVER_NAME__", mcpServerName)
-       .replace("__SERVER_INFO__", serverInfoJson)
-  );
+  cachedAdminHtml = Buffer.from(raw.replaceAll("__SERVER_NAME__", mcpServerName));
 } catch { /* admin UI not available */ }
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
@@ -317,6 +303,22 @@ async function _handleRequest(req, res) {
     const tlsEnabled = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
+    return;
+  }
+  if (req.url === "/info" && req.method === "GET") {
+    if (!checkAdminAuth(req, res)) return;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      name: mcpServerName,
+      version,
+      db: {
+        host:     process.env.PG_HOST     || "localhost",
+        port:     parseInt(process.env.PG_PORT || "5432"),
+        database: process.env.PG_DATABASE || "postgres",
+        user:     process.env.PG_USER     || "postgres",
+        ssl:      process.env.PG_SSL      || "false",
+      },
+    }));
     return;
   }
   if (req.url?.startsWith("/admin/tokens")) {
