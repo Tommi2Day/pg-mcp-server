@@ -23,7 +23,7 @@ Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp`, `/admin/tokens`, and `/info` (empty = auth disabled) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
@@ -622,7 +622,6 @@ EOF
 ```bash
 # Server info
 ./scripts/admincli.sh health                        # server health status + TLS flag (no auth required)
-./scripts/admincli.sh info                          # server name, version + default DB connection (AUTH_TOKEN required when set)
 
 # Token management
 ./scripts/admincli.sh list-tokens                   # list all tokens (CONN column shows per-token connection)
@@ -828,33 +827,12 @@ All scripts require only Docker — no local Node.js needed.
 | Path | Auth | Description |
 |------|------|-------------|
 | `POST /mcp` | Admin or file token | MCP Streamable-HTTP (uses token's connection if set) |
-| `GET /info` | Admin token (when `AUTH_TOKEN` is set) | Server name, version + default DB connection config (no password) |
 | `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
 | `GET /admin` | none | Web-based token administration UI |
 | `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
 | `POST /admin/tokens` | Admin token only | Create token; optional `connection` object |
 | `PATCH /admin/tokens/:id` | Admin token only | Update `name`, `active`, and/or `connection` |
 | `DELETE /admin/tokens/:id` | Admin token only | Permanently delete token |
-
-### `GET /info`
-
-Returns the server name, version, and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included.
-
-Requires the admin token when `AUTH_TOKEN` is set (same as `/admin/tokens`).
-
-```json
-{
-  "name": "pg-mcp-server",
-  "version": "0.0.13",
-  "db": {
-    "host": "localhost",
-    "port": 5432,
-    "database": "postgres",
-    "user": "postgres",
-    "ssl": "false"
-  }
-}
-```
 
 A full OpenAPI 3.1 specification is available in [`openapi.json`](openapi.json).
 

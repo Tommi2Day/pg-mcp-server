@@ -497,6 +497,43 @@
 
     .divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
 
+    /* ─── Info panel ───────────────────────────────────────────────────── */
+    .info-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+      display: flex; align-items: center;
+      flex-wrap: wrap; gap: 0;
+    }
+
+    .info-panel-title {
+      font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      color: var(--text-muted);
+      padding-right: 0.875rem; flex-shrink: 0;
+    }
+
+    .info-item {
+      display: flex; flex-direction: column;
+      padding: 0 0.875rem;
+      border-left: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .info-label {
+      font-size: 0.65rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-faint); line-height: 1.5;
+    }
+
+    .info-value {
+      font-size: 0.8125rem; font-weight: 500;
+      color: var(--text); line-height: 1.5;
+    }
+
     /* ─── Responsive ────────────────────────────────────────────────────── */
     @media (max-width: 700px) {
       .hide-sm { display: none; }
@@ -568,6 +605,8 @@
   </header>
 
   <main>
+    <div id="info-section"></div>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <h2>Tokens</h2>
@@ -621,6 +660,7 @@
   </div>
 </div>
 
+<script>window.__SERVER_INFO__ = __SERVER_INFO__;</script>
 <script>
 'use strict';
 
@@ -707,8 +747,51 @@ function showMain() {
   renderTokens();
 }
 
-async function loadServerInfo() {
-  try { state.serverInfo = await api('GET', '/info'); } catch (e) {}
+function loadServerInfo() {
+  try {
+    const info = window.__SERVER_INFO__;
+    state.serverInfo = (info && typeof info === 'object') ? info : null;
+  } catch (e) {
+    state.serverInfo = null;
+  }
+  renderServerInfo();
+}
+
+function renderServerInfo() {
+  const el = document.getElementById('info-section');
+  if (!el) return;
+  const info = state.serverInfo;
+  if (!info) { el.innerHTML = ''; return; }
+  const db = info.db || {};
+  const host = [db.host, db.port ? ':' + db.port : ''].join('') || '—';
+  el.innerHTML = `
+    <div class="info-panel">
+      <span class="info-panel-title">Server Info</span>
+      <div class="info-item">
+        <span class="info-label">Name</span>
+        <span class="info-value">${x(info.name || '—')}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Version</span>
+        <span class="info-value">${x(info.version || '—')}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Host</span>
+        <span class="info-value">${x(host)}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Database</span>
+        <span class="info-value">${x(db.database || '—')}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">User</span>
+        <span class="info-value">${x(db.user || '—')}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">SSL</span>
+        <span class="info-value">${x(db.ssl || 'false')}</span>
+      </div>
+    </div>`;
 }
 
 // ── Token list ────────────────────────────────────────────────────────────────

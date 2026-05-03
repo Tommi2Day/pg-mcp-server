@@ -40,7 +40,21 @@ const mcpServerName = process.env.MCP_SERVER_NAME || "pg-mcp-server";
 let cachedAdminHtml;
 try {
   const raw = fs.readFileSync(new URL("./admin.html", import.meta.url), "utf8");
-  cachedAdminHtml = Buffer.from(raw.replaceAll("__SERVER_NAME__", mcpServerName));
+  const serverInfoJson = JSON.stringify({
+    name: mcpServerName,
+    version,
+    db: {
+      host:     process.env.PG_HOST     || "localhost",
+      port:     parseInt(process.env.PG_PORT || "5432"),
+      database: process.env.PG_DATABASE || "postgres",
+      user:     process.env.PG_USER     || "postgres",
+      ssl:      process.env.PG_SSL      || "false",
+    },
+  });
+  cachedAdminHtml = Buffer.from(
+    raw.replaceAll("__SERVER_NAME__", mcpServerName)
+       .replace("__SERVER_INFO__", serverInfoJson)
+  );
 } catch { /* admin UI not available */ }
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
@@ -305,22 +319,6 @@ async function _handleRequest(req, res) {
     res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
     return;
   }
-  if (req.url === "/info" && req.method === "GET") {
-    if (!checkAdminAuth(req, res)) return;
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      name: mcpServerName,
-      version,
-      db: {
-        host:     process.env.PG_HOST     || "localhost",
-        port:     parseInt(process.env.PG_PORT || "5432"),
-        database: process.env.PG_DATABASE || "postgres",
-        user:     process.env.PG_USER     || "postgres",
-        ssl:      process.env.PG_SSL      || "false",
-      },
-    }));
-    return;
-  }
   if (req.url?.startsWith("/admin/tokens")) {
     await handleAdminRequest(req, res, {
       onDelete: (token) => {
@@ -412,7 +410,6 @@ if (isMain) {
         console.error(`  Admin UI     : https://localhost:${PORT}/admin`);
         console.error(`  Admin API    : https://localhost:${PORT}/admin/tokens`);
         console.error(`  Health check : https://localhost:${PORT}/health`);
-        console.error(`  Server info  : https://localhost:${PORT}/info`);
         console.error(`  Auth         : ${authInfo}`);
       });
     } else {
@@ -423,7 +420,6 @@ if (isMain) {
         console.error(`  Admin UI     : http://localhost:${PORT}/admin`);
         console.error(`  Admin API    : http://localhost:${PORT}/admin/tokens`);
         console.error(`  Health check : http://localhost:${PORT}/health`);
-        console.error(`  Server info  : http://localhost:${PORT}/info`);
         console.error(`  Auth         : ${authInfo}`);
       });
     }

@@ -16,7 +16,6 @@
 #   ./admincli.sh set-conn     <id> '<json>'   # set per-token DB connection
 #   ./admincli.sh clear-conn   <id>            # reset to default admin connection
 #   ./admincli.sh health                        # server health check
-#   ./admincli.sh info                          # server / DB info
 set -eo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -176,31 +175,6 @@ PYEOF
   fi
 }
 
-cmd_info() {
-  local raw
-  raw=$(curl -sS -w "\n%{http_code}" "${BASE_URL}/info")
-  local status body
-  status=$(echo "$raw" | tail -n1)
-  body=$(echo "$raw" | head -n -1)
-  if [ "$status" -ge 400 ]; then
-    die "HTTP ${status}: ${body}"
-  fi
-  if _py3; then
-    python3 - "$body" <<'PYEOF'
-import sys, json
-d = json.loads(sys.argv[1])
-db = d.get("db", {})
-print(f"\n  Version  : {d.get('version','?')}")
-print(f"  DB Host  : {db.get('host','?')}:{db.get('port','?')}")
-print(f"  Database : {db.get('database','?')}")
-print(f"  DB User  : {db.get('user','?')}")
-print(f"  DB TLS   : {db.get('ssl','?')}\n")
-PYEOF
-  else
-    pretty "$body"
-  fi
-}
-
 cmd_add_token() {
   require_token
   [ -n "${1:-}" ] || die "Usage: ./admincli.sh add-token <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S]"
@@ -339,7 +313,6 @@ pg-mcp-server admin CLI
 
   Server commands (no AUTH_TOKEN needed):
     health                       Show server health status
-    info                         Show server version and DB connection info
 
   Token commands:
     list-tokens                  List all tokens
@@ -362,7 +335,6 @@ pg-mcp-server admin CLI
   Examples:
     export AUTH_TOKEN=<admin-token>
     ./admincli.sh health
-    ./admincli.sh info
     ./admincli.sh list-tokens
     ./admincli.sh show-token 2
     ./admincli.sh add-token "claude-desktop"
@@ -396,7 +368,6 @@ case "${1:-help}" in
   set-conn)      cmd_set_conn      "${2:-}" "${3:-}" ;;
   clear-conn)    cmd_clear_conn    "${2:-}" ;;
   health)        cmd_health ;;
-  info)          cmd_info ;;
   help|--help|-h) cmd_help ;;
   *) die "Unknown command: ${1}\nHelp: ./admincli.sh help" ;;
 esac

@@ -66,9 +66,9 @@ When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-
 
 ### Auth (two levels)
 
-- **`AUTH_TOKEN`** env var — admin token; accepted at `/mcp`, `/admin/tokens`, and `/info`
+- **`AUTH_TOKEN`** env var — admin token; accepted at `/mcp` and `/admin/tokens`
 - **File tokens** — accepted at `/mcp` only; looked up by SHA-256 hash in the token store
-- `AUTH_TOKEN` empty → auth disabled; all requests (including admin API and `/info`) are allowed without a token
+- `AUTH_TOKEN` empty → auth disabled; all requests (including admin API) are allowed without a token
 - `checkAuth(req, res)` returns `{ ok, name, connection }` — mocks must return this shape
 - `checkAdminAuth(req, res)` returns `true` when `AUTH_TOKEN` is not set (mirrors `checkAuth` behaviour)
 - All token comparisons use `timingSafeEqual()` (double-SHA-256 + `crypto.timingSafeEqual`) to prevent timing attacks
