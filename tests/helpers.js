@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { vi } from "vitest";
 
-/** Erstellt ein Mock-Request-Objekt, das einen lesbaren Stream simuliert. */
+/** Creates a mock request object that simulates a readable stream. */
 export function makeReq(method, url, { headers = {}, body = "" } = {}) {
   const req = new EventEmitter();
   req.method = method;
@@ -10,7 +10,7 @@ export function makeReq(method, url, { headers = {}, body = "" } = {}) {
     authorization: `Bearer ${process.env.AUTH_TOKEN || ""}`,
     ...headers,
   };
-  // Body-Chunks asynchron emittieren damit readBody() zuerst listener anhängen kann
+  // Emit body chunks asynchronously so readBody() can attach listeners first
   setImmediate(() => {
     if (body) req.emit("data", body);
     req.emit("end");
@@ -18,7 +18,7 @@ export function makeReq(method, url, { headers = {}, body = "" } = {}) {
   return req;
 }
 
-/** Erstellt ein Mock-Response-Objekt. */
+/** Creates a mock response object. */
 export function makeRes() {
   return {
     writeHead: vi.fn(),
@@ -26,7 +26,7 @@ export function makeRes() {
   };
 }
 
-/** Parst den JSON-Body aus res.end.mock.calls[0][0]. */
+/** Parses the JSON body from res.end.mock.calls[0][0]. */
 export function resBody(res) {
   return JSON.parse(res.end.mock.calls[0][0]);
 }

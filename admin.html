@@ -1134,7 +1134,7 @@ function x(s) {
   if (s == null) return '';
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function showAlert(el, msg) {
@@ -1182,12 +1182,13 @@ document.addEventListener('keydown', e => {
     api('GET', '/admin/tokens')
       .then(data => { state.tokens = data.tokens || []; renderTokens(); })
       .catch(() => {
-        // session expired — back to login
         clearSession();
         state.serverUrl = '';
         state.token     = '';
         document.getElementById('main-view').style.display = 'none';
         document.getElementById('login-view').style.display = 'flex';
+        document.getElementById('inp-url').value = savedUrl;
+        showAlert(document.getElementById('login-error'), 'Session expired. Please sign in again.');
       });
   }
 }());

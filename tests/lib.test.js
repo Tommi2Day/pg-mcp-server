@@ -13,7 +13,16 @@ import {
   loadTokenStore,
   saveTokenStore,
   migrateTokenStore,
+  clearTokenStoreCache,
 } from "../lib.js";
+
+// Clear cache and any unconsumed mockReturnValueOnce queue before every test.
+// When loadTokenStore() hits the cache it skips the fs mock, leaving pending once values
+// that would otherwise bleed into subsequent tests.
+beforeEach(() => {
+  clearTokenStoreCache();
+  mockReadFile.mockReset();
+});
 import { makeReq, makeRes, resBody } from "./helpers.js";
 
 // ── Mock node:fs (for token store used by checkAuth) ──────────────────────────

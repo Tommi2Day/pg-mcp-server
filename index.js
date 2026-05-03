@@ -24,7 +24,7 @@ import fs from "node:fs";
 import https from "node:https";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
@@ -62,7 +62,11 @@ if (isMain) {
 }
 
 // ── Per-token pool cache ──────────────────────────────────────────────────────
-export const poolCache = new Map(); // JSON key → Pool instance
+export const poolCache = new Map(); // SHA-256 key → Pool instance
+
+function connectionKey(connection) {
+  return createHash("sha256").update(JSON.stringify(connection)).digest("hex");
+}
 
 /** Build a simple ssl config from a token connection's ssl field (no file loading). */
 function sslFromValue(val) {
@@ -73,7 +77,7 @@ function sslFromValue(val) {
 /** Return the pool for the given connection config, or the admin pool if null. */
 export function getPool(connection) {
   if (!connection) return pool;
-  const key = JSON.stringify(connection);
+  const key = connectionKey(connection);
   if (!poolCache.has(key)) {
     const p = new Pool({
       host:     connection.host     || process.env.PG_HOST     || "localhost",
@@ -325,7 +329,7 @@ async function _handleRequest(req, res) {
     await handleAdminRequest(req, res, {
       onDelete: (token) => {
         if (token.connection) {
-          const key = JSON.stringify(token.connection);
+          const key = connectionKey(token.connection);
           const p = poolCache.get(key);
           if (p) { p.end().catch(() => {}); poolCache.delete(key); }
         }
@@ -344,12 +348,13 @@ async function _handleRequest(req, res) {
     } else {
       // New session — resolve pool for this token
       const dbPool = getPool(auth.connection);
-      let newSessionId;
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => { newSessionId = id; sessions.set(id, transport); },
+        onsessioninitialized: (id) => {
+          sessions.set(id, transport);
+          transport.onclose = () => { sessions.delete(id); };
+        },
       });
-      transport.onclose = () => { sessions.delete(newSessionId); };
       const clientIp = req.headers["x-real-ip"]
         || req.headers["x-forwarded-for"]?.split(",")[0].trim()
         || req.socket?.remoteAddress || "-";

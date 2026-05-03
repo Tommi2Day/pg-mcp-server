@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { handleAdminRequest } from "../lib.js";
+import { handleAdminRequest, clearTokenStoreCache } from "../lib.js";
 import { makeReq, makeRes, resBody } from "./helpers.js";
 
 // ── Mock node:fs ──────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ const writtenStore = () => JSON.parse(mockWriteFile.mock.calls[0][1]);
 
 describe("handleAdminRequest", () => {
   beforeEach(() => {
+    clearTokenStoreCache();
     process.env.AUTH_TOKEN = ADMIN_TOKEN;
     // Default: file does not exist → empty store
     mockReadFile.mockImplementation(() => {

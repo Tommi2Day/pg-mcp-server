@@ -54,6 +54,9 @@ export function getTokensFile() {
   return process.env.TOKENS_FILE || "./tokens.json";
 }
 
+let tokenStoreCache = null;
+export function clearTokenStoreCache() { tokenStoreCache = null; }
+
 // ── Store encryption (AES-256-GCM, keyed by STORE_ENCRYPTION_KEY env var) ─────
 const ENC_PREFIX = "enc:v1:";
 
@@ -64,6 +67,7 @@ function getEncryptionKey() {
 }
 
 function encryptValue(plaintext) {
+  if (plaintext.startsWith(ENC_PREFIX)) return plaintext;
   const key = getEncryptionKey();
   if (!key) return plaintext;
   const iv  = crypto.randomBytes(12);
@@ -93,6 +97,7 @@ function decryptValue(value) {
 }
 
 export function loadTokenStore() {
+  if (tokenStoreCache) return tokenStoreCache;
   const file = getTokensFile();
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -101,6 +106,7 @@ export function loadTokenStore() {
         token.connection = { ...token.connection, password: decryptValue(token.connection.password) };
       }
     }
+    tokenStoreCache = data;
     return data;
   } catch (e) {
     if (e.code === "ENOENT") return { tokens: [], next_id: 1 };
@@ -120,6 +126,7 @@ export function saveTokenStore(data) {
     ),
   } : data;
   fs.writeFileSync(file, JSON.stringify(toWrite, null, 2), "utf8");
+  tokenStoreCache = data;
 }
 
 /** On startup: find any tokens whose stored password is still plaintext and encrypt them. */
@@ -154,9 +161,10 @@ export function extractBearer(req) {
 }
 
 export function send401(res) {
+  const realm = process.env.MCP_SERVER_NAME || "pg-mcp-server";
   res.writeHead(401, {
     "Content-Type": "application/json",
-    "WWW-Authenticate": 'Bearer realm="pg-mcp-server"',
+    "WWW-Authenticate": `Bearer realm="${realm}"`,
   });
   res.end(JSON.stringify({ error: "Unauthorized" }));
 }
@@ -164,7 +172,12 @@ export function send401(res) {
 export function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", chunk => { body += chunk; });
+    let size = 0;
+    req.on("data", chunk => {
+      size += chunk.length;
+      if (size > 1_048_576) { reject(new Error("Request body too large")); return; }
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
@@ -211,8 +224,13 @@ export async function handleAdminRequest(req, res, { onDelete } = {}) {
   if (!checkAdminAuth(req, res)) return;
 
   const pathname = new URL(req.url, "http://x").pathname;
-  const idStr = pathname.replace(/^\/admin\/tokens\/?/, "");
-  const id    = idStr ? parseInt(idStr, 10) : null;
+  const match = pathname.match(/^\/admin\/tokens(?:\/(\d+))?$/);
+  if (!match) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
+    return;
+  }
+  const id = match[1] ? parseInt(match[1], 10) : null;
 
   const ip = req.headers["x-real-ip"]
     || req.headers["x-forwarded-for"]?.split(",")[0].trim()
@@ -271,6 +289,11 @@ export async function handleAdminRequest(req, res, { onDelete } = {}) {
         res.end(JSON.stringify({ error: "No valid fields (name, active, connection)" }));
         return;
       }
+      if (updates.name !== undefined && (typeof updates.name !== "string" || !updates.name.trim())) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: '"name" must be a non-empty string' }));
+        return;
+      }
       if (updates.connection !== undefined && updates.connection !== null
           && (typeof updates.connection !== "object" || Array.isArray(updates.connection))) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -284,7 +307,7 @@ export async function handleAdminRequest(req, res, { onDelete } = {}) {
         res.end(JSON.stringify({ error: "Not found" }));
         return;
       }
-      if (updates.name     !== undefined) entry.name       = updates.name;
+      if (updates.name     !== undefined) entry.name       = updates.name.trim();
       if (updates.active   !== undefined) entry.active     = !!updates.active;
       if (updates.connection !== undefined) entry.connection = updates.connection || null;
       saveTokenStore(store);
