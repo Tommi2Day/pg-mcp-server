@@ -28,12 +28,17 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
-  checkAuth, handleAdminRequest,
+  checkAuth, checkAdminAuth, handleAdminRequest, migrateTokenStore,
 } from "./lib.js";
 
 const { Pool } = pg;
 const { version } = createRequire(import.meta.url)("./package.json");
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+
+let cachedAdminHtml;
+try {
+  cachedAdminHtml = fs.readFileSync(new URL("./admin.html", import.meta.url));
+} catch { /* admin UI not available */ }
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
 export let pool;
@@ -217,17 +222,37 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
             `Table: ${schema}.${args.table}\n${"─".repeat(60)}\nColumn | Type | Nullable | Default | Key\n${"─".repeat(60)}\n${rows.join("\n")}` }] };
         }
         case "query": {
-          const res = await dbPool.query(args.sql, args.params || []);
-          if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
-          const cols = Object.keys(res.rows[0]);
-          const header = cols.join(" | ");
-          const rows = res.rows.slice(0, 200).map(r => cols.map(c => String(r[c] ?? "")).join(" | "));
-          const note = res.rows.length > 200 ? `\n(showing 200 of ${res.rows.length} rows)` : `\n(${res.rows.length} row${res.rows.length !== 1 ? "s" : ""})`;
-          return { content: [{ type: "text", text: `${header}\n${"─".repeat(Math.min(header.length, 120))}\n${rows.join("\n")}${note}` }] };
+          const client = await dbPool.connect();
+          try {
+            await client.query("BEGIN READ ONLY");
+            const res = await client.query(args.sql, args.params || []);
+            await client.query("COMMIT");
+            if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
+            const cols = Object.keys(res.rows[0]);
+            const header = cols.join(" | ");
+            const rows = res.rows.slice(0, 200).map(r => cols.map(c => String(r[c] ?? "")).join(" | "));
+            const note = res.rows.length > 200 ? `\n(showing 200 of ${res.rows.length} rows)` : `\n(${res.rows.length} row${res.rows.length !== 1 ? "s" : ""})`;
+            return { content: [{ type: "text", text: `${header}\n${"─".repeat(Math.min(header.length, 120))}\n${rows.join("\n")}${note}` }] };
+          } catch (err) {
+            await client.query("ROLLBACK").catch(() => {});
+            throw err;
+          } finally {
+            client.release();
+          }
         }
         case "execute": {
-          const res = await dbPool.query(args.sql, args.params || []);
-          return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
+          const client = await dbPool.connect();
+          try {
+            await client.query("BEGIN");
+            const res = await client.query(args.sql, args.params || []);
+            await client.query("COMMIT");
+            return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
+          } catch (err) {
+            await client.query("ROLLBACK").catch(() => {});
+            throw err;
+          } finally {
+            client.release();
+          }
         }
         default:
           // noinspection ExceptionCaughtLocallyJS
@@ -262,24 +287,23 @@ export async function handleRequest(req, res) {
 
 async function _handleRequest(req, res) {
   if ((req.url === "/admin" || req.url === "/admin/") && req.method === "GET") {
-    try {
-      const html = fs.readFileSync(new URL("./admin.html", import.meta.url));
+    if (cachedAdminHtml) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(html);
-    } catch (err) {
-      console.error(`[${new Date().toISOString()}] [HTTP] Failed to read admin.html: ${err.message}`);
+      res.end(cachedAdminHtml);
+    } else {
       res.writeHead(404);
       res.end("Admin UI not found");
     }
     return;
   }
   if (req.url === "/health" && req.method === "GET") {
-    const tlsEnabled = process.env.TLS_ENABLED !== "false";
+    const tlsEnabled = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
     return;
   }
   if (req.url === "/info" && req.method === "GET") {
+    if (!checkAdminAuth(req, res)) return;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       version,
@@ -294,7 +318,15 @@ async function _handleRequest(req, res) {
     return;
   }
   if (req.url?.startsWith("/admin/tokens")) {
-    await handleAdminRequest(req, res);
+    await handleAdminRequest(req, res, {
+      onDelete: (token) => {
+        if (token.connection) {
+          const key = JSON.stringify(token.connection);
+          const p = poolCache.get(key);
+          if (p) { p.end().catch(() => {}); poolCache.delete(key); }
+        }
+      },
+    });
     return;
   }
   if (req.url === "/mcp") {
@@ -308,11 +340,12 @@ async function _handleRequest(req, res) {
     } else {
       // New session — resolve pool for this token
       const dbPool = getPool(auth.connection);
+      let newSessionId;
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => { sessions.set(id, transport); },
+        onsessioninitialized: (id) => { newSessionId = id; sessions.set(id, transport); },
       });
-      transport.onclose = () => { sessions.delete(sessionId); };
+      transport.onclose = () => { sessions.delete(newSessionId); };
       const clientIp = req.headers["x-real-ip"]
         || req.headers["x-forwarded-for"]?.split(",")[0].trim()
         || req.socket?.remoteAddress || "-";
@@ -342,6 +375,8 @@ if (isMain) {
 
 // ── Transport selection (only when run directly) ──────────────────────────────
 if (isMain) {
+  migrateTokenStore();
+
   const TRANSPORT   = (process.env.TRANSPORT   || "stdio").toLowerCase();
   const TLS_ENABLED = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";
   const PORT        = parseInt(process.env.PORT || "3000");

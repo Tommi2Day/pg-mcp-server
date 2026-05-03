@@ -10,6 +10,9 @@ import {
   getAuthToken,
   checkAuth,
   checkAdminAuth,
+  loadTokenStore,
+  saveTokenStore,
+  migrateTokenStore,
 } from "../lib.js";
 import { makeReq, makeRes, resBody } from "./helpers.js";
 
@@ -284,5 +287,144 @@ describe("checkAuth", () => {
     const res = makeRes();
     expect(await checkAuth(req, res)).toEqual({ ok: false });
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
+  });
+});
+
+// ── Token store encryption ────────────────────────────────────────────────────
+describe("token store encryption", () => {
+  const storeWithPw = (password) => ({
+    tokens: [{ id: 1, name: "t", token_hash: "h", active: true, created_at: "x",
+               last_used_at: null, connection: { host: "h", database: "d", user: "u", password } }],
+    next_id: 2,
+  });
+
+  beforeEach(() => {
+    delete process.env.STORE_ENCRYPTION_KEY;
+    vi.clearAllMocks();
+    mockWriteFile.mockImplementation(() => {});
+  });
+  afterEach(() => { delete process.env.STORE_ENCRYPTION_KEY; });
+
+  it("saveTokenStore writes plain password when STORE_ENCRYPTION_KEY is not set", () => {
+    saveTokenStore(storeWithPw("secret"));
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+    expect(written.tokens[0].connection.password).toBe("secret");
+  });
+
+  it("saveTokenStore encrypts password when STORE_ENCRYPTION_KEY is set", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    saveTokenStore(storeWithPw("secret"));
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+    expect(written.tokens[0].connection.password).toMatch(/^enc:v1:/);
+    expect(written.tokens[0].connection.password).not.toContain("secret");
+  });
+
+  it("loadTokenStore decrypts an encrypted password when the key is set", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    saveTokenStore(storeWithPw("secret"));
+    const encrypted = JSON.parse(mockWriteFile.mock.calls[0][1]);
+
+    vi.clearAllMocks();
+    mockReadFile.mockReturnValueOnce(JSON.stringify(encrypted));
+    const loaded = loadTokenStore();
+    expect(loaded.tokens[0].connection.password).toBe("secret");
+  });
+
+  it("loadTokenStore passes plain password through when no key is set", () => {
+    mockReadFile.mockReturnValueOnce(JSON.stringify(storeWithPw("plain")));
+    const loaded = loadTokenStore();
+    expect(loaded.tokens[0].connection.password).toBe("plain");
+  });
+
+  it("encrypt/decrypt round-trip is stable across two different saves", () => {
+    process.env.STORE_ENCRYPTION_KEY = "stable-key";
+    saveTokenStore(storeWithPw("round-trip"));
+    const enc1 = JSON.parse(mockWriteFile.mock.calls[0][1]).tokens[0].connection.password;
+
+    vi.clearAllMocks();
+    mockWriteFile.mockImplementation(() => {});
+    mockReadFile.mockReturnValueOnce(JSON.stringify(
+      JSON.parse(JSON.stringify(storeWithPw(enc1))) // simulate reading encrypted file
+    ));
+    const loaded = loadTokenStore();
+    expect(loaded.tokens[0].connection.password).toBe("round-trip");
+  });
+
+  it("saveTokenStore does not touch tokens without a connection password", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    const store = {
+      tokens: [{ id: 1, name: "t", token_hash: "h", active: true, created_at: "x",
+                 last_used_at: null, connection: null }],
+      next_id: 2,
+    };
+    saveTokenStore(store);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+    expect(written.tokens[0].connection).toBeNull();
+  });
+});
+
+// ── migrateTokenStore ─────────────────────────────────────────────────────────
+describe("migrateTokenStore", () => {
+  const rawStore = (password) => ({
+    tokens: [{ id: 1, name: "t", token_hash: "h", active: true, created_at: "x",
+               last_used_at: null, connection: { host: "h", database: "d", user: "u", password } }],
+    next_id: 2,
+  });
+
+  beforeEach(() => {
+    delete process.env.STORE_ENCRYPTION_KEY;
+    vi.clearAllMocks();
+    mockWriteFile.mockImplementation(() => {});
+  });
+  afterEach(() => { delete process.env.STORE_ENCRYPTION_KEY; });
+
+  it("does nothing when STORE_ENCRYPTION_KEY is not set", () => {
+    migrateTokenStore();
+    expect(mockReadFile).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the token file does not exist", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    mockReadFile.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+    migrateTokenStore();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("encrypts plain passwords found in the file", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    mockReadFile.mockReturnValueOnce(JSON.stringify(rawStore("plaintext-pw")));
+    migrateTokenStore();
+    expect(mockWriteFile).toHaveBeenCalled();
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+    expect(written.tokens[0].connection.password).toMatch(/^enc:v1:/);
+  });
+
+  it("does nothing when all passwords are already encrypted", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    // Build a store that already has an encrypted password
+    mockWriteFile.mockImplementation(() => {});
+    saveTokenStore(rawStore("secret"));
+    const alreadyEncrypted = JSON.parse(mockWriteFile.mock.calls[0][1]);
+
+    vi.clearAllMocks();
+    mockWriteFile.mockImplementation(() => {});
+    mockReadFile.mockReturnValueOnce(JSON.stringify(alreadyEncrypted));
+    migrateTokenStore();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("migrated passwords decrypt correctly afterwards", () => {
+    process.env.STORE_ENCRYPTION_KEY = "test-key";
+    mockReadFile.mockReturnValueOnce(JSON.stringify(rawStore("my-db-password")));
+    migrateTokenStore();
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+
+    vi.clearAllMocks();
+    mockReadFile.mockReturnValueOnce(JSON.stringify(written));
+    const loaded = loadTokenStore();
+    expect(loaded.tokens[0].connection.password).toBe("my-db-password");
   });
 });
