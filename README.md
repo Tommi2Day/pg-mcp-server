@@ -471,6 +471,96 @@ helm uninstall pg-mcp -n mcp
 
 ---
 
+## MCP Client Configuration
+
+Use the **HTTP** variant when the server runs in Docker or on a remote host, and the **stdio** variant for a local Node.js install.
+
+### Claude Code CLI
+
+```bash
+# HTTP (Docker / remote)
+claude mcp add --transport http postgresql http://localhost:3000/mcp \
+  --header "Authorization: Bearer <AUTH_TOKEN>"
+
+# stdio (local Node.js)
+claude mcp add postgresql node /path/to/index.js \
+  --env PG_HOST=localhost \
+  --env PG_DATABASE=mydb \
+  --env PG_USER=user \
+  --env PG_PASSWORD=password
+```
+
+Add `--scope user` to register the server globally instead of per-project.
+
+### VS Code (GitHub Copilot)
+
+Create `.vscode/mcp.json` in your project root (VS Code 1.99+):
+
+**HTTP (Docker / remote)**
+```json
+{
+  "servers": {
+    "postgresql": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer <AUTH_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+**stdio (local Node.js)**
+```json
+{
+  "servers": {
+    "postgresql": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/index.js"],
+      "env": {
+        "PG_HOST": "localhost",
+        "PG_DATABASE": "mydb",
+        "PG_USER": "user",
+        "PG_PASSWORD": "password"
+      }
+    }
+  }
+}
+```
+
+### OpenCode
+
+Use the interactive `opencode mcp add` command (answers shown for each prompt):
+
+**HTTP (Docker / remote)**
+
+```
+opencode mcp add
+  Name  →  postgresql
+  Type  →  remote
+  URL   →  http://localhost:3000/mcp
+  Header Authorization  →  Bearer <AUTH_TOKEN>
+```
+
+**stdio (local Node.js)**
+
+```
+opencode mcp add
+  Name     →  postgresql
+  Type     →  local
+  Command  →  node /path/to/index.js
+  Env PG_HOST      →  localhost
+  Env PG_DATABASE  →  mydb
+  Env PG_USER      →  user
+  Env PG_PASSWORD  →  password
+```
+
+The server is saved to `opencode.json` in the project root (or `~/.config/opencode/opencode.json` for global config). Use `opencode mcp list` to verify, and `opencode mcp remove <name>` to delete.
+
+---
+
 ## Authentication
 
 `AUTH_TOKEN` (env var) is the **admin token** — it grants access to `/mcp` and the token management API.
