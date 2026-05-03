@@ -80,15 +80,15 @@ function decryptValue(value) {
     console.error(`[${new Date().toISOString()}] [STORE] WARNING: Encrypted password found but STORE_ENCRYPTION_KEY is not set — connection will fail.`);
     return value;
   }
+  const parts = value.slice(ENC_PREFIX.length).split(":");
+  if (parts.length !== 3) throw new Error("Malformed encrypted value in token store — check STORE_ENCRYPTION_KEY");
   try {
-    const parts = value.slice(ENC_PREFIX.length).split(":");
-    if (parts.length !== 3) throw new Error("malformed ciphertext");
     const [ivHex, tagHex, ctHex] = parts;
     const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
     decipher.setAuthTag(Buffer.from(tagHex, "hex"));
     return decipher.update(Buffer.from(ctHex, "hex"), undefined, "utf8") + decipher.final("utf8");
   } catch (err) {
-    throw new Error(`Failed to decrypt store value: ${err.message} — check STORE_ENCRYPTION_KEY`);
+    throw new Error(`Failed to decrypt store value: ${err.message} — check STORE_ENCRYPTION_KEY`, { cause: err });
   }
 }
 

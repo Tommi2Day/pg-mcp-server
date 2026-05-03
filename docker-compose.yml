@@ -36,6 +36,10 @@ services:
       # TLS_CA_FILE: /certs/client-ca.crt
       # TLS_SAN: "${TLS_SAN:-}"
 
+      # ── Server identity ───────────────────────────────────────────────────
+      # Name shown in MCP clients and the Admin UI (default: pg-mcp-server)
+      MCP_SERVER_NAME: "${MCP_SERVER_NAME:-pg-mcp-server}"
+
       # ── Authentication ────────────────────────────────────────────────────
       # Bearer token for /mcp and /admin/tokens (empty = auth disabled)
       # Generate with: openssl rand -hex 32

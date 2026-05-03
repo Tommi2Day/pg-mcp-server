@@ -50,6 +50,10 @@ spec:
               value: {{ .Values.server.transport | quote }}
             - name: PORT
               value: {{ .Values.server.port | quote }}
+            {{- if .Values.server.name }}
+            - name: MCP_SERVER_NAME
+              value: {{ .Values.server.name | quote }}
+            {{- end }}
 
             # ── HTTP TLS ──────────────────────────────────────────────────
             {{- if .Values.server.tlsEnabled }}

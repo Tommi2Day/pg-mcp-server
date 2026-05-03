@@ -44,9 +44,9 @@ helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
 
 **Two source files, no build step:**
 
-- **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`.
+- **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
-- **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Reads its path via `new URL("./admin.html", import.meta.url)` (ESM — no `__dirname`).
+- **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). The result is cached as a `Buffer` in `cachedAdminHtml`.
 
 ### isMain guard
 
@@ -62,13 +62,16 @@ Tokens are stored in a JSON file (`TOKENS_FILE` env var, default `./tokens.json`
 
 Each token record has: `id`, `name`, `token_hash` (SHA-256 hex), `created_at`, `last_used_at`, `active`, `connection` (object or null). The `token_hash` field is never returned by the admin API.
 
+When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-256-GCM and stored as `enc:v1:<iv-hex>:<tag-hex>:<ciphertext-hex>`. `loadTokenStore()` decrypts transparently; `saveTokenStore()` encrypts before writing. `migrateTokenStore()` is called at startup to encrypt any plaintext passwords in an existing file.
+
 ### Auth (two levels)
 
-- **`AUTH_TOKEN`** env var — admin token; accepted at `/mcp` and `/admin/tokens`
+- **`AUTH_TOKEN`** env var — admin token; accepted at `/mcp`, `/admin/tokens`, and `/info`
 - **File tokens** — accepted at `/mcp` only; looked up by SHA-256 hash in the token store
-- `AUTH_TOKEN` empty → auth disabled; all requests (including admin API) are allowed without a token
+- `AUTH_TOKEN` empty → auth disabled; all requests (including admin API and `/info`) are allowed without a token
 - `checkAuth(req, res)` returns `{ ok, name, connection }` — mocks must return this shape
 - `checkAdminAuth(req, res)` returns `true` when `AUTH_TOKEN` is not set (mirrors `checkAuth` behaviour)
+- All token comparisons use `timingSafeEqual()` (double-SHA-256 + `crypto.timingSafeEqual`) to prevent timing attacks
 
 ### Per-token connection routing
 
@@ -104,6 +107,7 @@ Key values:
 - `tls.existingSecret` / `tls.cert` + `tls.key` → HTTPS
 - `tls.san` → `TLS_SAN` env var (additional SANs for self-signed cert)
 - `server.tlsEnabled: true` → switches health probe scheme to HTTPS
+- `server.name` → `MCP_SERVER_NAME` env var (server name shown in MCP clients and Admin UI; default `pg-mcp-server`)
 - `persistence.enabled: true` → creates a PVC for the token store; `persistence.existingClaim` to use a pre-existing one
 - Service and container port are named `http` (ingress uses this name — must match)
 

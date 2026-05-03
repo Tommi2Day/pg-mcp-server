@@ -108,16 +108,24 @@
     "/info": {
       "get": {
         "summary": "Server info",
-        "description": "Returns the server version and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included. No authentication required.",
+        "description": "Returns the server name, version and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included. Requires the admin token when AUTH_TOKEN is set.",
         "operationId": "getInfo",
+        "security": [
+          {
+            "AdminToken": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Server version and default DB connection config",
+            "description": "Server name, version and default DB connection config",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "name": {
+                      "type": "string"
+                    },
                     "version": {
                       "type": "string"
                     },
@@ -144,7 +152,8 @@
                   }
                 },
                 "example": {
-                  "version": "0.0.7",
+                  "name": "pg-mcp-server",
+                  "version": "0.0.13",
                   "db": {
                     "host": "localhost",
                     "port": 5432,
@@ -155,6 +164,9 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Missing or invalid admin token"
           }
         }
       }
@@ -500,8 +512,8 @@
         }
       },
       "delete": {
-        "summary": "Deactivate a token",
-        "description": "Sets active=false. The token record remains in the token store.",
+        "summary": "Delete a token",
+        "description": "Permanently removes the token record from the token store. The token is immediately revoked.",
         "operationId": "deleteToken",
         "security": [
           {
@@ -510,7 +522,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Token deactivated",
+            "description": "Token deleted",
             "content": {
               "application/json": {
                 "schema": {

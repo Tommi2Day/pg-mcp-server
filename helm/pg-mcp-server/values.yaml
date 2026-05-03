@@ -35,6 +35,9 @@ auth:
 
 # ── MCP Server ────────────────────────────────────────────────────────────────
 server:
+  # Name shown in MCP clients (e.g. Claude browser tab) and the Admin UI.
+  # Default: pg-mcp-server
+  name: ""
   port: 3000
   transport: http
 

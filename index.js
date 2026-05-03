@@ -35,9 +35,12 @@ const { Pool } = pg;
 const { version } = createRequire(import.meta.url)("./package.json");
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
+const mcpServerName = process.env.MCP_SERVER_NAME || "pg-mcp-server";
+
 let cachedAdminHtml;
 try {
-  cachedAdminHtml = fs.readFileSync(new URL("./admin.html", import.meta.url));
+  const raw = fs.readFileSync(new URL("./admin.html", import.meta.url), "utf8");
+  cachedAdminHtml = Buffer.from(raw.replaceAll("__SERVER_NAME__", mcpServerName));
 } catch { /* admin UI not available */ }
 
 // ── DB pool (only when run directly) ─────────────────────────────────────────
@@ -93,7 +96,7 @@ export function getPool(connection) {
 // ── MCP server factory ────────────────────────────────────────────────────────
 export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp = "-") {
   const server = new Server(
-    { name: "pg-mcp-server", version },
+    { name: mcpServerName, version },
     { capabilities: { tools: {} } }
   );
 
@@ -223,34 +226,34 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
         }
         case "query": {
           const client = await dbPool.connect();
+          let committed = false;
           try {
             await client.query("BEGIN READ ONLY");
             const res = await client.query(args.sql, args.params || []);
             await client.query("COMMIT");
+            committed = true;
             if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
             const cols = Object.keys(res.rows[0]);
             const header = cols.join(" | ");
             const rows = res.rows.slice(0, 200).map(r => cols.map(c => String(r[c] ?? "")).join(" | "));
             const note = res.rows.length > 200 ? `\n(showing 200 of ${res.rows.length} rows)` : `\n(${res.rows.length} row${res.rows.length !== 1 ? "s" : ""})`;
             return { content: [{ type: "text", text: `${header}\n${"─".repeat(Math.min(header.length, 120))}\n${rows.join("\n")}${note}` }] };
-          } catch (err) {
-            await client.query("ROLLBACK").catch(() => {});
-            throw err;
           } finally {
+            if (!committed) await client.query("ROLLBACK").catch(() => {});
             client.release();
           }
         }
         case "execute": {
           const client = await dbPool.connect();
+          let committed = false;
           try {
             await client.query("BEGIN");
             const res = await client.query(args.sql, args.params || []);
             await client.query("COMMIT");
+            committed = true;
             return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
-          } catch (err) {
-            await client.query("ROLLBACK").catch(() => {});
-            throw err;
           } finally {
+            if (!committed) await client.query("ROLLBACK").catch(() => {});
             client.release();
           }
         }
@@ -306,6 +309,7 @@ async function _handleRequest(req, res) {
     if (!checkAdminAuth(req, res)) return;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
+      name: mcpServerName,
       version,
       db: {
         host:     process.env.PG_HOST     || "localhost",

@@ -23,7 +23,9 @@ Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp`, `/admin/tokens`, and `/info` (empty = auth disabled) |
+| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title |
+| `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
 | `TLS_CERT_FILE` | `/certs/tls.crt` | Server certificate (PEM) |
@@ -175,6 +177,8 @@ Key variables in `.env`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AUTH_TOKEN` | _(empty)_ | Admin bearer token; leave empty to disable auth |
+| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI |
+| `STORE_ENCRYPTION_KEY` | _(empty)_ | Passphrase for AES-256-GCM encryption of stored connection passwords |
 | `MCP_PORT` | `3000` | Host port for the MCP server |
 | `PG_HOST` | `postgres-test` | PostgreSQL host (use `host.docker.internal` for a local DB outside Docker) |
 | `PG_DATABASE` | `testdb` | Database name |
@@ -494,6 +498,16 @@ The session is stored in `sessionStorage` (cleared when the browser tab is close
 Tokens are persisted in a JSON file (default `./tokens.json`, configurable via `TOKENS_FILE`).  
 **Mount a volume** at the file's directory so tokens survive container restarts — see the Docker and Helm sections above.
 
+#### Password encryption
+
+Set `STORE_ENCRYPTION_KEY` to a passphrase to enable AES-256-GCM encryption of `connection.password` values at rest. Passwords are encrypted on save and decrypted transparently on load. On startup the server migrates any plaintext passwords it finds in the file — no manual step required.
+
+```bash
+export STORE_ENCRYPTION_KEY="my-secret-passphrase"
+```
+
+Without this variable the passwords are stored as plaintext (acceptable for local/dev use). Changing the key requires re-saving every token (plaintext migration runs automatically on startup only when the key is set).
+
 ### Manage tokens with `admincli.sh`
 
 `admincli.sh` reads `AUTH_TOKEN` and `MCP_URL` from environment variables or from a `scripts/.env` file:
@@ -516,9 +530,9 @@ EOF
 > ```
 
 ```bash
-# Server info (no AUTH_TOKEN required)
-./scripts/admincli.sh health                        # server health status + TLS flag
-./scripts/admincli.sh info                          # server version + default DB connection
+# Server info
+./scripts/admincli.sh health                        # server health status + TLS flag (no auth required)
+./scripts/admincli.sh info                          # server name, version + default DB connection (AUTH_TOKEN required when set)
 
 # Token management
 ./scripts/admincli.sh list-tokens                   # list all tokens (CONN column shows per-token connection)
@@ -661,7 +675,7 @@ The token store is a plain JSON file. The server reads and writes it automatical
         "port": 5432,
         "database": "mydb",
         "user": "myuser",
-        "password": "secret",
+        "password": "enc:v1:<iv-hex>:<tag-hex>:<ciphertext-hex>",
         "ssl": "false"
       }
     }
@@ -670,7 +684,7 @@ The token store is a plain JSON file. The server reads and writes it automatical
 }
 ```
 
-`connection: null` means the token uses the server's default PostgreSQL connection. The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored.
+`connection: null` means the token uses the server's default PostgreSQL connection. The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored. When `STORE_ENCRYPTION_KEY` is set, `connection.password` is stored as `enc:v1:<iv>:<tag>:<ciphertext>` (AES-256-GCM); otherwise it is stored in plaintext.
 
 ## Automated Updates
 
@@ -714,8 +728,8 @@ All scripts require only Docker — no local Node.js needed.
 | `list_schemas` | List all schemas |
 | `list_tables` | List tables in a schema |
 | `describe_table` | Show columns, types and constraints |
-| `query` | Execute SELECT (max 200 rows) |
-| `execute` | Execute INSERT / UPDATE / DELETE / DDL |
+| `query` | Execute a read-only SQL query (max 200 rows, wrapped in `BEGIN READ ONLY` / `COMMIT`) |
+| `execute` | Execute INSERT / UPDATE / DELETE / DDL (wrapped in `BEGIN` / `COMMIT`) |
 
 ---
 
@@ -724,7 +738,7 @@ All scripts require only Docker — no local Node.js needed.
 | Path | Auth | Description |
 |------|------|-------------|
 | `POST /mcp` | Admin or file token | MCP Streamable-HTTP (uses token's connection if set) |
-| `GET /info` | none | Server version + default DB connection config (no password) |
+| `GET /info` | Admin token (when `AUTH_TOKEN` is set) | Server name, version + default DB connection config (no password) |
 | `GET /health` | none | Health check (`{"status":"ok","tls":<bool>}`) |
 | `GET /admin` | none | Web-based token administration UI |
 | `GET /admin/tokens` | Admin token only | List tokens with connection info (no hashes) |
@@ -734,11 +748,14 @@ All scripts require only Docker — no local Node.js needed.
 
 ### `GET /info`
 
-Returns the server version and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included.
+Returns the server name, version, and the default PostgreSQL connection configuration (host, port, database, user, ssl mode). The password is never included.
+
+Requires the admin token when `AUTH_TOKEN` is set (same as `/admin/tokens`).
 
 ```json
 {
-  "version": "0.0.7",
+  "name": "pg-mcp-server",
+  "version": "0.0.13",
   "db": {
     "host": "localhost",
     "port": 5432,
