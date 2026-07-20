@@ -56,7 +56,7 @@ services:
       PG_PASSWORD: "${PG_PASSWORD:-postgres}"
       # PG_SSL: false | true | verify
       PG_SSL: "${PG_SSL:-false}"
-      # PG_SSL_CA_FILE: /certs/pg-ca.crt
+      PG_SSL_CA_FILE: "${PGSSLROOTCERT:-/certs/pg-ca.crt}"
 
     volumes:
       - mcp-data:/data               # persist token store
