@@ -8,13 +8,13 @@ KEY="${TLS_KEY_FILE:-/certs/tls.key}"
 if [ "$TLS_ENABLED" = "true" ]; then
   if [ -f "$CERT" ] && [ -f "$KEY" ]; then
     echo "✅ TLS certificate found at $CERT – using existing cert."
-    # Ensure the node user can read both files (handles root:root 600 mounts)
-    chmod o+r "$CERT" "$KEY" 2>/dev/null || \
-      chown node:node "$CERT" "$KEY" 2>/dev/null || {
-        echo "   ❌ Cannot make certs readable for node user."
-        echo "      Ensure files are mode 644 or owned by uid 1000."
-        exit 1
-      }
+    # Container runs as uid 1000 (node), so a restrictively-mounted cert
+    # (e.g. root:root 600) can only be fixed if we own it or it's already readable.
+    chmod o+r "$CERT" "$KEY" 2>/dev/null || {
+      echo "   ❌ Cannot make certs readable for the node user (uid 1000)."
+      echo "      Mount certs with mode 644 (key: 640+) and owned by uid 1000, or world-readable."
+      exit 1
+    }
   else
     echo "⚠️  No TLS certificate found at $CERT / $KEY"
     echo "   Generating a self-signed certificate with SAN (NOT for production use)..."
@@ -36,7 +36,6 @@ if [ "$TLS_ENABLED" = "true" ]; then
       -addext "subjectAltName=${SAN}" \
       2>/dev/null
 
-    chown node:node "$CERT" "$KEY"
     chmod 644 "$CERT"
     chmod 640 "$KEY"
     echo "   ✅ Self-signed certificate generated."
@@ -46,11 +45,10 @@ else
   echo "ℹ️  TLS disabled – running plain HTTP."
 fi
 
-# Ensure the token store directory is writable by the node user (uid 1000).
-# Named Docker volumes are created owned by root; chown before dropping privileges.
-_data_dir="$(dirname "${TOKENS_FILE:-/data/tokens.json}")"
-mkdir -p "$_data_dir"
-chown node:node "$_data_dir"
+# Ensure the token store directory exists. The image pre-creates /data owned
+# by node so a fresh named volume / emptyDir inherits that ownership; a
+# volume mounted with different ownership needs to already be writable by
+# uid 1000 since the container no longer runs as root.
+mkdir -p "$(dirname "${TOKENS_FILE:-/data/tokens.json}")"
 
-# Drop from root to node user
-exec su-exec node node index.js
+exec node index.js

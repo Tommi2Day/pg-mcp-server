@@ -126,10 +126,12 @@ readinessProbe:
 
 # ── Security ──────────────────────────────────────────────────────────────────
 podSecurityContext:
-  runAsNonRoot: false   # entrypoint runs as root briefly to fix cert permissions
-  fsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000          # grants uid 1000 write access to mounted volumes (data/certs)
 
 securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
   allowPrivilegeEscalation: false
   capabilities:
     drop: ["ALL"]

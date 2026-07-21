@@ -97,7 +97,7 @@ Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, 
 
 ### Docker entrypoint
 
-`docker-entrypoint.sh` runs as root, handles TLS certs (generates self-signed if `/certs` is empty), then `exec su-exec node node index.js` (drops to uid 1000). Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
+The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
 
 ### Helm chart (`helm/pg-mcp-server/`)
 
