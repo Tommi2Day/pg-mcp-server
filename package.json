@@ -16,7 +16,7 @@
     "audit:fix": "npm audit fix"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "pg": "^8.22.0"
   },
   "devDependencies": {
