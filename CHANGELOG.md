@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Admin UI: the `.mcp.json` hint in the *Token Created* dialog overflowed the dialog, because the long bearer token could not wrap.
+
+### Added
+- README: screenshots of the admin UI and of the log output (`docs/images/`).
+
 ### Changed
 - Updated `pg` to `^8.23.0` and dev dependencies (`vitest` / `@vitest/coverage-v8` `^5.0.1`, `globals`); lockfile refreshed with `npm audit fix` (0 vulnerabilities).
 

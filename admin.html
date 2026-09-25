@@ -463,6 +463,9 @@
       margin-bottom: 1rem;
     }
     .token-reveal p { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .reveal-hint { font-size: .75rem; color: var(--text-muted); line-height: 1.6; }
+    /* long bearer tokens have no break opportunities — let them wrap inside the modal */
+    .reveal-hint code { font-size: .72rem; overflow-wrap: anywhere; }
 
     .token-value {
       display: flex; align-items: flex-start; gap: 0.5rem;
@@ -929,9 +932,9 @@ function showTokenReveal(created) {
         </button>
       </div>
     </div>
-    <p style="font-size:.75rem;color:var(--text-muted);line-height:1.6">
+    <p class="reveal-hint">
       Add to <code>.mcp.json</code>:<br>
-      <code style="font-size:.72rem">"Authorization": "Bearer ${x(created.token)}"</code>
+      <code>"Authorization": "Bearer ${x(created.token)}"</code>
     </p>`;
   showModal('Token Created', body, [
     { label: 'Done', cls: 'btn-submit', fn: 'closeModal()' },
