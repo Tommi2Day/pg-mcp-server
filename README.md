@@ -18,7 +18,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
-- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`), REST API (OpenAPI spec included) or `admincli.sh`
+- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
 
 **Security & transport**
@@ -30,7 +30,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 **Audit logging**
 - Every tool call with token name, client IP and parameters; session start/stop with duration
 - Failed logins with reason (unknown / disabled / invalid admin token) — presented tokens are never logged
-- Admin API actions; `LOG_LEVEL` (`debug`/`info`/`warn`/`error`) — SQL text only at `debug`
+- Admin API actions ([example output](#logging)); `LOG_LEVEL` (`debug`/`info`/`warn`/`error`) — SQL text only at `debug`
 
 **Operations**
 - Docker image on Docker Hub, `docker-compose` with test database, persistent volumes for tokens and certs
@@ -646,6 +646,18 @@ Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage 
 
 The session is stored in `sessionStorage` (cleared when the browser tab is closed).
 
+**Token list** — status, per-token connection (server default or own database) and last use at a glance:
+
+![Admin UI: token list](docs/images/admin-tokens.png)
+
+<table>
+  <tr>
+    <td width="33%" valign="top"><b>Login</b><br><img src="docs/images/admin-login.png" alt="Admin UI: login"></td>
+    <td width="33%" valign="top"><b>New token with its own DB connection</b><br><img src="docs/images/admin-create-token.png" alt="Admin UI: create token with custom connection"></td>
+    <td width="33%" valign="top"><b>Token value is shown only once</b><br><img src="docs/images/admin-token-created.png" alt="Admin UI: one-time token display"></td>
+  </tr>
+</table>
+
 ### Token store
 
 Tokens are persisted in a JSON file (default `./tokens.json`, configurable via `TOKENS_FILE`).  
@@ -795,6 +807,14 @@ All log lines go to **stderr** and are visible in `docker logs <name>`. Each lin
 ```
 
 `LOG_LEVEL` (`debug` / `info` / `warn` / `error`, default `info`) sets the minimum level that is written.
+
+Real output of a short session at the default level `info` — two clients working in parallel, a write attempt rejected by the read-only DB user of `reporting-team`, and four rejected logins (disabled token, unknown token, wrong admin token, missing token). SQL text is replaced by its length:
+
+![Log output at LOG_LEVEL=info](docs/images/logs-info.png)
+
+With `LOG_LEVEL=debug` the full SQL text is logged:
+
+![Log output at LOG_LEVEL=debug](docs/images/logs-debug.png)
 
 | Category | Level | When |
 |----------|-------|------|
