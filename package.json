@@ -12,6 +12,11 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "version": "node --input-type=commonjs -e \"const fs=require('fs'),v=process.env.npm_new_version;const a=JSON.parse(fs.readFileSync('openapi.json'));a.info.version=v;fs.writeFileSync('openapi.json',JSON.stringify(a,null,2)+'\\n');let c=fs.readFileSync('helm/pg-mcp-server/Chart.yaml','utf8');c=c.replace(/^version: .+/m,'version: '+v).replace(/^appVersion: .+/m,'appVersion: \\\"'+v+'\\\"');fs.writeFileSync('helm/pg-mcp-server/Chart.yaml',c);\" && git add openapi.json helm/pg-mcp-server/Chart.yaml",
+    "ci:build": "echo 'No build step required'",
+    "ci:test": "vitest run",
+    "ci:lint": "eslint .",
+    "ci:format": "echo 'No format step'",
+    "ci:audit": "npm audit --audit-level=high",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },

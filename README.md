@@ -192,7 +192,10 @@ cp .env.example .env
 
 - Stops and removes any existing container with the same name
 - Auto-generates `AUTH_TOKEN` on first run and saves it to `./auth_token`
-- Reads `.env` from the project root if present
+- Reads `defaults.env` and then `.env` from the project root if present (`.env` wins)
+- Image: `IMAGE` (default `tommi2day/pg-mcp-server`) and `IMAGE_TAG` (default `latest`), e.g. to use a mirror in a private registry
+
+`defaults.env` is meant for site-specific defaults that are committed in a fork (registry, image tag, Helm values files), while `.env` stays local and untracked. `scripts/helm_install.sh` reads the same files and additionally accepts `IMAGE_REPO`, `IMAGE_TAG` and `HELM_VALUES_FILES` (space-separated list of extra `-f` values files).
 
 ### Quick start (manual)
 

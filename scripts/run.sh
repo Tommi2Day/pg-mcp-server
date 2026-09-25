@@ -1,16 +1,17 @@
 #!/bin/bash
 # Pulls and starts the pg-mcp-server Docker container.
 # Auto-generates AUTH_TOKEN on first run (saved to ./auth_token).
-# Reads .env from the project root if present.
+# Reads defaults.env (optional, site-specific defaults) and then .env from the
+# project root if present; .env overrides defaults.env.
+# Image: IMAGE (default tommi2day/pg-mcp-server) and IMAGE_TAG (default latest).
 # Tokens and TLS certs persist in the named volumes <name>-data and <name>-certs.
 #
 # Usage:
 #   ./run.sh              # start as "pg-mcp-server"
 #   ./run.sh my-name      # start with a custom container name
 NAME=${1:-pg-mcp-server}
-if [ -r .env ]; then
-  . .env
-fi
+[ -r defaults.env ] && . ./defaults.env
+[ -r .env ] && . ./.env
 if [ "$(docker ps -a -q -f name=$NAME)" ]; then
   docker stop $NAME
   sleep 10
@@ -28,7 +29,9 @@ PG_PASSWORD=${PGPASSWORD:-}
 MCP_PORT=${MCP_PORT:-3000}
 MCP_SERVER_NAME=${MCP_SERVER_NAME:-}
 TLS_ENABLED=${TLS_ENABLED:-false}
-docker pull tommi2day/pg-mcp-server:latest
+IMAGE=${IMAGE:-tommi2day/pg-mcp-server}
+IMAGE_TAG=${IMAGE_TAG:-latest}
+docker pull "$IMAGE:$IMAGE_TAG"
 docker run -d --name "$NAME" \
   -p "$MCP_PORT:3000" \
   -e TRANSPORT=http \
@@ -47,7 +50,7 @@ docker run -d --name "$NAME" \
   ${MCP_SERVER_NAME:+-e "MCP_SERVER_NAME=$MCP_SERVER_NAME"} \
   -v "${NAME}-data:/data" \
   -v "${NAME}-certs:/certs" \
-  tommi2day/pg-mcp-server:latest
+  "$IMAGE:$IMAGE_TAG"
 
 sleep 10
 docker logs "$NAME"
