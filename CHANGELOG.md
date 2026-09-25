@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `DOCKERHUB.md`: compact description for Docker Hub (features, comparison, quick start, screenshots). The new workflow *Docker Hub Description* publishes it whenever it changes on `main` or on manual dispatch.
+
 ## [0.2.1] - 2026-09-25
 
 ### Fixed

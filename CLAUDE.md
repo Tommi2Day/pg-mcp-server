@@ -146,3 +146,5 @@ Three files are always kept in sync: `package.json`, `openapi.json` (`info.versi
 **Option 1 — local:** `npm version 1.2.3` triggers the `version` lifecycle script, then `git push origin main 1.2.3`.
 
 **Option 2 — CI:** trigger **Actions → Release → Run workflow** with a version number.
+
+The Docker Hub page is generated from `DOCKERHUB.md`, not `README.md` (README exceeds Docker Hub's 25,000 character limit). Keep it in sync when features change; the *Docker Hub Description* workflow publishes it on push to `main`.
