@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-25
+
 ### Fixed
 - Admin UI: the `.mcp.json` hint in the *Token Created* dialog overflowed the dialog, because the long bearer token could not wrap.
 
@@ -179,7 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.6...0.2.0
 [0.1.6]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.5...0.1.6
 [0.1.5]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.4...0.1.5
