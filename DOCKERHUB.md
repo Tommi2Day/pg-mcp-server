@@ -7,11 +7,12 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 ## Features
 
 **MCP tools**
-- 6 tools: `test_connection`, `list_schemas`, `list_tables`, `describe_table`, `query`, `execute`
-- `query` runs inside `BEGIN READ ONLY` — PostgreSQL itself rejects writes, not a keyword filter
+- 12 tools: `test_connection`, `list_schemas`, `list_tables`, `describe_table`, `query`, `execute` and the performance tools `explain_query`, `top_queries`, `table_stats`, `index_health`, `active_queries`, `performance_overview`
+- `query` runs inside `BEGIN READ ONLY`, one statement per call — PostgreSQL itself rejects writes, not a keyword filter
 - `execute` runs in a transaction with automatic `ROLLBACK` on error
 - Parameterized queries (`params`), results capped at 200 rows to keep LLM context small
-- Query plans via `query`: `EXPLAIN`, `EXPLAIN ANALYZE` (actually runs the statement — writes are rejected by the read-only transaction) and `EXPLAIN (FORMAT JSON)`
+- Query plans via `explain_query` (or `EXPLAIN` through `query`): `ANALYZE` actually runs the statement, but inside a read-only transaction that is always rolled back; `generic_plan` explains statements with unbound `$1` placeholders (PostgreSQL 16+)
+- Performance tuning: slowest statements from `pg_stat_statements`, stale statistics and per-column planner statistics, table bloat and seq-scan hot spots, unused/duplicate/invalid indexes, running and blocked sessions with wait events, cache hit ratio and key settings — all read-only, see [Performance analysis](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/performance.md)
 
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
@@ -51,7 +52,7 @@ Most PostgreSQL MCP servers are built for **one developer on one machine**: star
 
 Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived) (stdio only, a single read-only `query` tool), this server adds schema tools, a separate write tool, remote transport and everything above.
 
-**When to choose something else:** query plans work here too — the assistant can run `EXPLAIN` / `EXPLAIN ANALYZE` through the read-only `query` tool and suggest indexes from them. For dedicated DBA tooling such as index recommendations verified with hypothetical indexes, workload analysis from `pg_stat_statements` or ready-made health checks, look at [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp); for several database engines (MySQL, SQL Server, SQLite, …) behind one server, look at [DBHub](https://github.com/bytebase/dbhub). pg-mcp-server focuses on secure, audited, multi-user SQL access to PostgreSQL.
+**When to choose something else:** the performance tools cover plans, workload statistics from `pg_stat_statements`, index and table health. For index recommendations verified with hypothetical indexes, look at [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp); for several database engines (MySQL, SQL Server, SQLite, …) behind one server, look at [DBHub](https://github.com/bytebase/dbhub). pg-mcp-server focuses on secure, audited, multi-user SQL access to PostgreSQL.
 
 ## Quick start
 
@@ -100,7 +101,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
-| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title |
+| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
@@ -131,6 +132,14 @@ More options (Kubernetes/Helm, Traefik, mTLS, token CLI): see the [full README](
 | `describe_table` | Show columns, types and constraints |
 | `query` | Execute a read-only SQL query (max 200 rows, wrapped in `BEGIN READ ONLY` / `COMMIT`) |
 | `execute` | Execute INSERT / UPDATE / DELETE / DDL (wrapped in `BEGIN` / `COMMIT`) |
+| `explain_query` | Execution plan of one statement; options `analyze`, `buffers`, `verbose`, `settings`, `generic_plan`, `format` (text/json). Runs in `BEGIN READ ONLY` and is always rolled back |
+| `top_queries` | Most expensive statements of the current database from `pg_stat_statements` (sort by total/mean time, calls, rows, blocks read, temp written; filter by text or role) |
+| `table_stats` | Overview: sizes, seq vs. index scans, dead rows, last vacuum/analyze. With `table`: stale-statistics warnings, indexes with usage, per-column planner statistics |
+| `index_health` | Unused, duplicate and invalid indexes |
+| `active_queries` | Running and idle-in-transaction sessions (blocked first) with duration, wait event, blocking PIDs and `query_id`, plus a wait-event snapshot |
+| `performance_overview` | Cache hit ratio, connections, temp files, deadlocks and key tuning settings |
+
+The performance tools work best with `GRANT pg_monitor TO <user>` and the `pg_stat_statements` extension — details, workflows and troubleshooting in [Performance analysis](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/performance.md).
 
 ## Admin UI
 

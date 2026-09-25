@@ -75,7 +75,17 @@ When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-
 
 ### Per-token connection routing
 
-`checkAuth` returns the token's `connection` object (or `null`). `handleRequest` passes it to `getPool(connection)` in `index.js`, which returns a cached `pg.Pool` for that connection config, or the default admin pool when `connection` is null. Pool instances are cached in a module-level `Map` keyed by `JSON.stringify(connection)`.
+`checkAuth` returns the token's `connection` object (or `null`). `handleRequest` passes it with the token name to `getPool(connection, tokenName)` in `index.js`, which returns a cached `pg.Pool` — for the token's connection config, or the server's default connection (`PG_*` env) when `connection` is null. Pools are cached in `poolCache` keyed by a SHA-256 of `{ connection, tokenName }`: one pool per token, because `application_name` (`applicationName()` → `<MCP_SERVER_NAME>:<token>`, 63 printable ASCII chars) can only be set at connect time. `onDelete` closes the deleted token's pool. There is no module-level default pool; stdio mode uses `getPool(null, "stdio")`.
+
+### Performance tools
+
+`explain_query`, `top_queries`, `table_stats`, `index_health`, `active_queries`, `performance_overview` live in `index.js` (listed in `PERF_TOOL_NAMES`); user-facing docs are in `docs/performance.md` — keep it in sync.
+
+- Catalog queries go through `perfSql()`, which inserts `PERF_TAG` right after `SELECT` (pg_stat_statements drops leading comments); `top_queries` filters the tag out
+- `query` and `explain_query` use `queryMode: "extended"` so only one statement runs per call. `generic_plan` falls back to the simple protocol only after the extended parse succeeded (`bind message supplies 0 parameters`), inside a savepoint
+- Sort keys (`TOP_QUERY_ORDER`, `TABLE_STATS_ORDER`) and EXPLAIN options are whitelisted — never interpolate raw args into SQL
+- Version differences: `top_queries` probes `server_version_num` (PG13 column names, PG14 `pg_stat_statements_info`); `active_queries` reads `query_id` via `to_jsonb(a)` so it works before PG14
+- Errors matching `PRIVILEGE_ERROR` get `PRIVILEGE_HINT`; `privilegeNote()` / the `pg_has_role` check add notes for hidden rows
 
 ### HTTP session management
 
@@ -132,7 +142,7 @@ Two services on `mcp-net`: `postgres-test` (port 5433, `pg_isready` healthcheck)
 Three test files in `tests/`:
 - `lib.test.js` — unit tests for all `lib.js` exports; mocks `node:fs` for token store tests
 - `admin.test.js` — `handleAdminRequest` CRUD; mocks `node:fs` (`readFileSync`/`writeFileSync`) via `vi.hoisted`
-- `index.test.js` — `handleRequest` routing, `getPool` caching, `createMcpServer` ListTools + CallTool (all 6 tools)
+- `index.test.js` — `handleRequest` routing, `getPool` caching, `createMcpServer` ListTools + CallTool (all 12 tools)
 
 `index.test.js` mocks `pg`, all MCP SDK modules, and `lib.js`. `capturedHandlers` (hoisted) captures `setRequestHandler` callbacks so tool handlers can be invoked directly in tests.
 

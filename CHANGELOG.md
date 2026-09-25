@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
+### Added
+- MIT license (`LICENSE`)
+- Performance tuning tools: `explain_query`, `top_queries` (`pg_stat_statements`), `table_stats`, `index_health`, `active_queries`, `performance_overview`
+  - `explain_query`: `settings` and `generic_plan` (PostgreSQL 16+, plans statements with unbound `$1` placeholders)
+  - `top_queries`: `sql_text_like` and `user` filters, `queryid` and role columns, reset time and eviction warning from `pg_stat_statements_info`; the tools' own statements are excluded
+  - `table_stats` with `table`: detail view with stale/missing statistics warnings, indexes with definition and usage, per-column planner statistics
+  - `active_queries`: blocked sessions first, summary line, `username` and `limit` filters, `query_id`, wait-event snapshot
+  - Hints when privileges are missing (`pg_monitor` / `pg_read_all_stats`)
+- `docs/performance.md`: privileges, `pg_stat_statements` setup, tool reference, workflows, troubleshooting
+- Database sessions carry `application_name` = `<MCP_SERVER_NAME>:<token name>` (e.g. `pg-mcp-server:reporting-team`, `pg-mcp-server:admin`, `pg-mcp-server:stdio`), visible in `pg_stat_activity` and the PostgreSQL log
+
+### Changed
+- One database pool per token (and connection) instead of one shared default pool, so each session reports its token in `application_name`. Tokens without their own connection now each get up to 5 connections; idle connections close after 10 s
+- stdio mode logs tool calls with `token="stdio"` instead of `token="unknown"`
+
+### Security
+- `query` accepts exactly one statement per call (extended query protocol). Previously `COMMIT; <write>` could end the `BEGIN READ ONLY` transaction and run writes through the read-only tool
+
 ## [0.2.2] - 2026-09-25
 
 ### Added
@@ -196,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.6...0.2.0

@@ -3,6 +3,7 @@
   "version": "0.2.2",
   "description": "PostgreSQL MCP Server for Claude – stdio & HTTP",
   "main": "index.js",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "node index.js",

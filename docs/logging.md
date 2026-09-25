@@ -44,7 +44,9 @@ Pairs are separated by a single space. Values are enclosed in double quotes, exc
 | `ADMIN` | info | `token` `action` `ip` | Admin API call; `token` = `admin` or `anonymous` (auth disabled) |
 | `ADMIN` | error | `token` `action` `ip` `error` | Admin API call failed |
 
-`token` is `admin` (the `AUTH_TOKEN`), `anonymous` (auth disabled) or the name of a file token.
+`token` is `admin` (the `AUTH_TOKEN`), `anonymous` (auth disabled), `stdio` (stdio mode, `MCP` lines only) or the name of a file token.
+The same name appears in the database as `application_name` = `<MCP_SERVER_NAME>:<token>`, so `pg_stat_activity`
+and PostgreSQL's own log (`%a` in `log_line_prefix`) can be correlated with these lines.
 `ip` is resolved from `X-Real-IP` → first `X-Forwarded-For` entry → socket address.
 
 Examples:
