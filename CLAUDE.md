@@ -115,7 +115,8 @@ Key values:
 - `postgresql.existingSecret` → Secret `<release>-pg-credentials`
 - `tls.existingSecret` / `tls.cert` + `tls.key` → HTTPS
 - `tls.san` → `TLS_SAN` env var (additional SANs for self-signed cert)
-- `server.tlsEnabled: true` → switches health probe scheme to HTTPS
+- `server.tlsEnabled: true` → httpGet probes default to `scheme: HTTPS` (deepCopy + `set` in `deployment.yaml`; an explicit `scheme` in values wins)
+- TLS and PG client-cert secrets are mounted with `defaultMode: 0440` (readable via `fsGroup: 1000`, key not world-readable)
 - `server.name` → `MCP_SERVER_NAME` env var (server name shown in MCP clients and Admin UI; default `pg-mcp-server`)
 - `server.logLevel` → `LOG_LEVEL` env var (default `info`)
 - `persistence.enabled: true` → creates a PVC for the token store; `persistence.existingClaim` to use a pre-existing one
