@@ -74,8 +74,16 @@ docker run -d --name pg-mcp-server \
   -e PG_USER=user \
   -e PG_PASSWORD=password \
   -v pg-mcp-data:/data \
+  -v pg-mcp-certs:/certs \
   tommi2day/pg-mcp-server:latest
 ```
+
+Both volumes keep their contents across container restarts and re-creation:
+
+| Volume | Mount | Content |
+|--------|-------|---------|
+| `pg-mcp-data` | `/data` | Token store (`tokens.json`) |
+| `pg-mcp-certs` | `/certs` | TLS certificate + key (self-signed cert generated on first start with `TLS_ENABLED=true`), optional `pg-ca.crt` |
 
 ### In docker-compose.yml
 
@@ -156,6 +164,7 @@ docker run -d --name pg-mcp-server \
   -e PG_USER=user \
   -e PG_PASSWORD=password \
   -v pg-mcp-data:/data \
+  -v pg-mcp-certs:/certs \
   pg-mcp-server
 ```
 
@@ -182,6 +191,7 @@ Key variables in `.env`:
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STORE_ENCRYPTION_KEY` | _(empty)_ | Passphrase for AES-256-GCM encryption of stored connection passwords |
 | `MCP_PORT` | `3000` | Host port for the MCP server |
+| `MCP_HOSTNAME` | `pg-mcp-server` | Fixed container hostname; included as DNS SAN in the self-signed certificate |
 | `PG_HOST` | `postgres-test` | PostgreSQL host (use `host.docker.internal` for a local DB outside Docker) |
 | `PG_DATABASE` | `testdb` | Database name |
 | `PG_USER` | `postgres` | Database user |
@@ -195,13 +205,16 @@ Key variables in `.env`:
 environment:
   TLS_ENABLED: "true"
   TLS_SAN: "DNS:my-host.local,IP:192.168.1.10"
-volumes:
-  - ./certs:/certs   # mount real certs; leave empty → self-signed is generated
 ```
 
+`docker-compose.yml` mounts the named volume `mcp-certs` at `/certs` (and `mcp-data` at `/data` for the token store), so certificates survive `docker compose down` / `up`. To use your own certificates, replace `mcp-certs:/certs` with a bind mount such as `./certs:/certs`.
+
 On startup:
-- `/certs` contains a certificate → it is used (permissions are adjusted automatically)
-- `/certs` is empty → a self-signed certificate is generated automatically
+- `/certs` contains a certificate → it is used. If the container (uid 1000) owns the key, it is set to mode `640`; the key is never made world-readable. Mounted certs must be readable by uid 1000 (owner, or group 1000 with key mode `640`)
+- `/certs` is empty → a self-signed certificate is generated and stored in the volume
+- A previously generated self-signed certificate (`CN=pg-mcp-server`) that expires within 30 days is regenerated automatically; your own certificates are never replaced
+
+`docker compose down -v` deletes both volumes, including all tokens.
 
 Once running, open `http://localhost:3000/admin` to manage tokens via the web UI.
 

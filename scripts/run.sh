@@ -2,6 +2,7 @@
 # Pulls and starts the pg-mcp-server Docker container.
 # Auto-generates AUTH_TOKEN on first run (saved to ./auth_token).
 # Reads .env from the project root if present.
+# Tokens and TLS certs persist in the named volumes <name>-data and <name>-certs.
 #
 # Usage:
 #   ./run.sh              # start as "pg-mcp-server"
@@ -26,6 +27,7 @@ PG_USER=${PGUSER:-postgres}
 PG_PASSWORD=${PGPASSWORD:-}
 MCP_PORT=${MCP_PORT:-3000}
 MCP_SERVER_NAME=${MCP_SERVER_NAME:-}
+TLS_ENABLED=${TLS_ENABLED:-false}
 docker pull tommi2day/pg-mcp-server:latest
 docker run -d --name "$NAME" \
   -p "$MCP_PORT:3000" \
@@ -38,8 +40,13 @@ docker run -d --name "$NAME" \
   -e "PG_USER=$PG_USER" \
   -e "PG_PASSWORD=$PG_PASSWORD" \
   -e "PG_SSL=${PG_SSL:-false}" \
+  -e "TLS_ENABLED=$TLS_ENABLED" \
+  ${TLS_SAN:+-e "TLS_SAN=$TLS_SAN"} \
+  ${LOG_LEVEL:+-e "LOG_LEVEL=$LOG_LEVEL"} \
+  ${STORE_ENCRYPTION_KEY:+-e "STORE_ENCRYPTION_KEY=$STORE_ENCRYPTION_KEY"} \
   ${MCP_SERVER_NAME:+-e "MCP_SERVER_NAME=$MCP_SERVER_NAME"} \
   -v "${NAME}-data:/data" \
+  -v "${NAME}-certs:/certs" \
   tommi2day/pg-mcp-server:latest
 
 sleep 10

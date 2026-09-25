@@ -18,6 +18,9 @@ services:
   pg-mcp-server:
     build: .
     image: pg-mcp-server:latest
+    # Fixed hostname: it is written into the SAN of the self-signed cert, which is
+    # persisted in mcp-certs — a random container ID would change on every re-create.
+    hostname: ${MCP_HOSTNAME:-pg-mcp-server}
     ports:
       - "${MCP_PORT:-3000}:3000"
     depends_on:
@@ -63,8 +66,9 @@ services:
       PG_SSL_CA_FILE: "${PGSSLROOTCERT:-/certs/pg-ca.crt}"
 
     volumes:
-      - mcp-data:/data               # persist token store
-      # - ./certs:/certs:ro          # uncomment when TLS_ENABLED=true
+      - mcp-data:/data               # persist token store (tokens.json)
+      - mcp-certs:/certs             # persist TLS certs (self-signed cert is generated here on first start)
+      # - ./certs:/certs             # alternative: bind-mount your own certs instead of mcp-certs
 
     networks:
       - mcp-net
@@ -77,3 +81,4 @@ networks:
 
 volumes:
   mcp-data:
+  mcp-certs:

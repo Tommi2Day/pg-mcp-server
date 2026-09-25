@@ -123,7 +123,7 @@ Key values:
 
 ### docker-compose
 
-Two services on `mcp-net`: `postgres-test` (port 5433, `pg_isready` healthcheck) and `pg-mcp-server` (`depends_on: condition: service_healthy`). Named volume `mcp-data` mounts at `/data` to persist `tokens.json`.
+Two services on `mcp-net`: `postgres-test` (port 5433, `pg_isready` healthcheck) and `pg-mcp-server` (`depends_on: condition: service_healthy`). Named volumes `mcp-data` (`/data`, `tokens.json`) and `mcp-certs` (`/certs`, TLS certs) persist state; `scripts/run.sh` uses `<name>-data` and `<name>-certs`.
 
 ## Tests
 
