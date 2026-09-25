@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docs/logging.md`: specification of the log line format and tested Filebeat (Docker, Kubernetes) and Logstash configurations in `docs/logging/`.
 - `run.sh`: image configurable via `IMAGE` / `IMAGE_TAG`; `run.sh` and `helm_install.sh` read an optional `defaults.env` (site-specific defaults for forks) before `.env`. `helm_install.sh` settings can be overridden from the environment, and `HELM_VALUES_FILES` adds extra values files.
 - `package.json`: `ci:*` scripts used by GitLab CI pipelines.
 - `DOCKERHUB.md`: compact description for Docker Hub (features, comparison, quick start, screenshots). The new workflow *Docker Hub Description* publishes it whenever it changes on `main` or on manual dispatch.

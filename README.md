@@ -830,6 +830,8 @@ With `LOG_LEVEL=debug` the full SQL text is logged:
 | `[HTTP]` | error | Unhandled error in the HTTP request handler. |
 | `[FATAL]` | error | Unhandled promise rejection or uncaught exception — the process exits after logging. |
 
+**Shipping logs to Elasticsearch:** the exact line format, tested Filebeat configurations (Docker and Kubernetes) and a Logstash pipeline that turns each line into structured fields are in [docs/logging.md](docs/logging.md).
+
 The client IP is resolved in order: `x-real-ip` header → first entry of `x-forwarded-for` → TCP socket address. When running Docker without a reverse proxy, the socket address is the Docker bridge IP — deploy behind nginx or Traefik to log the real client IP.
 
 ### Token file format

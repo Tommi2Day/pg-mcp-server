@@ -1,0 +1,30 @@
+# Filebeat (DaemonSet): collect pg-mcp-server pod logs in Kubernetes and ship them to Logstash.
+# See docs/logging.md. Pods of the Helm chart carry the label app.kubernetes.io/name=pg-mcp-server.
+filebeat.autodiscover:
+  providers:
+    - type: kubernetes
+      node: ${NODE_NAME}
+      templates:
+        - condition:
+            equals:
+              kubernetes.labels.app_kubernetes_io/name: pg-mcp-server
+          config:
+            - type: filestream
+              id: pg-mcp-server-${data.kubernetes.container.id}
+              paths:
+                - /var/log/containers/*-${data.kubernetes.container.id}.log
+              parsers:
+                - container:
+                    stream: all
+                - multiline:
+                    type: pattern
+                    pattern: '^\s'
+                    negate: false
+                    match: after
+                    # each line already ends with its own newline
+                    skip_newline: true
+              fields:
+                service: pg-mcp-server
+
+output.logstash:
+  hosts: ["logstash:5044"]

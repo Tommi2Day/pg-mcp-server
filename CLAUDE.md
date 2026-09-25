@@ -103,6 +103,7 @@ All structured log lines go through `log(level, category, message)` in `lib.js` 
 - `getClientIp(req)`: `x-real-ip` → `x-forwarded-for` first entry → socket address
 - Session stop is logged from `transport.onclose`, which is **chained** with the handler `server.connect()` installed — don't overwrite it
 - `index.test.js` mocks `log`, `isLogEnabled`, `getLogLevel`, `getClientIp` from `lib.js`
+- The line format is a public interface documented in `docs/logging.md`; when keys, categories or quoting change, update that page and the Logstash pipeline in `docs/logging/` (and note it in the CHANGELOG)
 
 ### Docker entrypoint
 
