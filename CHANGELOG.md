@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated `pg` to `^8.23.0` and dev dependencies (`vitest` / `@vitest/coverage-v8` `^5.0.1`, `globals`); lockfile refreshed with `npm audit fix` (0 vulnerabilities).
+
 ## [0.2.0] - 2026-09-25
 
 ### Added
