@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-25
+
 ### Added
 - `docs/logging.md`: specification of the log line format and tested Filebeat (Docker, Kubernetes) and Logstash configurations in `docs/logging/`.
 - `run.sh`: image configurable via `IMAGE` / `IMAGE_TAG`; `run.sh` and `helm_install.sh` read an optional `defaults.env` (site-specific defaults for forks) before `.env`. `helm_install.sh` settings can be overridden from the environment, and `HELM_VALUES_FILES` adds extra values files.
@@ -194,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...HEAD
+[0.2.2]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.6...0.2.0
 [0.1.6]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.5...0.1.6
