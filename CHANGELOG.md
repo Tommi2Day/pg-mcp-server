@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-25
+
 ### Added
 - `LOG_LEVEL` env var (`debug` / `info` / `warn` / `error`, default `info`); exposed in `.env.example`, `docker-compose.yml` and the Helm chart (`server.logLevel`). The active level is shown in the startup banner.
 - Audit log for rejected requests (`[WARN] [AUTH]`) with path, client IP and reason: `missing token`, `invalid admin token`, `unknown token` or `token disabled` (incl. token name). The presented token is never logged.
@@ -166,7 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.6...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.6...0.2.0
 [0.1.6]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.5...0.1.6
 [0.1.5]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.4...0.1.5
 [0.1.4]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.1.3...0.1.4
