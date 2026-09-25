@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DOCKERHUB.md`: compact description for Docker Hub (features, comparison, quick start, screenshots). The new workflow *Docker Hub Description* publishes it whenever it changes on `main` or on manual dispatch.
 
 ### Changed
+- `ci:test` prints a coverage summary, so GitLab CI can show test coverage.
 - README / Docker Hub: query plans (`EXPLAIN`, `EXPLAIN ANALYZE`) are available through `query`; the comparison with Postgres MCP Pro now names what is actually missing (index recommendations with hypothetical indexes, `pg_stat_statements` workload analysis, health checks).
 
 ### Fixed
