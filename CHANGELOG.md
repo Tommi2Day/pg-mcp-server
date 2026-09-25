@@ -27,11 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helm: with `server.tlsEnabled: true`, the `httpGet` liveness and readiness probes default to `scheme: HTTPS`. An explicit `scheme` in the values still takes precedence.
 
 ### Fixed
+- Release workflow: pushing a version tag skipped the *Build & Push* and *Create Release* jobs, because the skipped *Bump version* job made their implicit `success()` check fail. Both jobs now run on tag push as well as on manual dispatch.
 - Container crash loop with HTTPS on Kubernetes when the certificate comes from a Secret (`tls.existingSecret` or `tls.cert`/`tls.key`). The entrypoint ran `chmod o+r` on the read-only Secret mount and exited when it failed.
 - Helm: with TLS enabled, the health probes used HTTP and failed unless `scheme: HTTPS` was set by hand.
 - The session close handler overwrote the `onclose` handler installed by `server.connect()` instead of chaining it.
 
 ### Security
+- Dependency updates via `npm audit fix` for advisories in `hono`, `@hono/node-server`, `ip-address`, `qs` (runtime, via the MCP SDK) and `brace-expansion`, `fast-uri`, `nanoid`, `postcss`, `@humanfs/node` (dev tooling); `vitest` / `@vitest/coverage-v8` raised to `^4.1.11`. `npm audit` reports 0 vulnerabilities.
 - The TLS private key is no longer made world-readable by the entrypoint. A key owned by uid 1000 is set to mode `640`, which also repairs keys that earlier versions left at `644` in a persistent volume.
 - Helm: the TLS Secret and the PostgreSQL client-certificate Secret are mounted with `defaultMode: 0440` (readable by root and `fsGroup` 1000 only).
 - `run.sh` now passes `STORE_ENCRYPTION_KEY`, so connection passwords are no longer stored in plaintext when the container is started through this script.
