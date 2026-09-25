@@ -139,6 +139,8 @@ Three test files in `tests/`:
 
 ## Version sync
 
+User-facing changes go into `CHANGELOG.md` under `[Unreleased]` (Keep a Changelog format); on release, rename that section to the new version and date.
+
 Three files are always kept in sync: `package.json`, `openapi.json` (`info.version`), and `helm/pg-mcp-server/Chart.yaml` (`version` + `appVersion`).
 
 **Option 1 — local:** `npm version 1.2.3` triggers the `version` lifecycle script, then `git push origin main 1.2.3`.
