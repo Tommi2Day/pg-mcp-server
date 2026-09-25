@@ -239,7 +239,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
             if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
             const cols = Object.keys(res.rows[0]);
             const header = cols.join(" | ");
-            const rows = res.rows.slice(0, 200).map(r => cols.map(c => String(r[c] ?? "")).join(" | "));
+            const rows = res.rows.slice(0, 200).map(r => cols.map(c => formatCell(r[c])).join(" | "));
             const note = res.rows.length > 200 ? `\n(showing 200 of ${res.rows.length} rows)` : `\n(${res.rows.length} row${res.rows.length !== 1 ? "s" : ""})`;
             return { content: [{ type: "text", text: `${header}\n${"─".repeat(Math.min(header.length, 120))}\n${rows.join("\n")}${note}` }] };
           } finally {
@@ -273,6 +273,14 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
   });
 
   return server;
+}
+
+/** Text for one result cell. json/jsonb values (e.g. EXPLAIN (FORMAT JSON)) arrive as
+ *  objects from pg and would otherwise render as "[object Object]". */
+function formatCell(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object" && !(value instanceof Date) && !Buffer.isBuffer(value)) return JSON.stringify(value);
+  return String(value);
 }
 
 /** Tool params for the log line. SQL text is only included at debug level;

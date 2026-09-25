@@ -14,6 +14,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - `query` runs inside `BEGIN READ ONLY` — PostgreSQL itself rejects writes, not a keyword filter
 - `execute` runs in a transaction with automatic `ROLLBACK` on error
 - Parameterized queries (`params`), results capped at 200 rows to keep LLM context small
+- Query plans via `query`: `EXPLAIN`, `EXPLAIN ANALYZE` (actually runs the statement — writes are rejected by the read-only transaction) and `EXPLAIN (FORMAT JSON)`
 
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
@@ -53,7 +54,7 @@ Most PostgreSQL MCP servers are built for **one developer on one machine**: star
 
 Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived) (stdio only, a single read-only `query` tool), this server adds schema tools, a separate write tool, remote transport and everything above.
 
-**When to choose something else:** if you need DBA features such as index tuning, `EXPLAIN` analysis or health checks, look at [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp); for several database engines (MySQL, SQL Server, SQLite, …) behind one server, look at [DBHub](https://github.com/bytebase/dbhub). pg-mcp-server focuses on secure, audited, multi-user SQL access to PostgreSQL.
+**When to choose something else:** query plans work here too — the assistant can run `EXPLAIN` / `EXPLAIN ANALYZE` through the read-only `query` tool and suggest indexes from them. For dedicated DBA tooling such as index recommendations verified with hypothetical indexes, workload analysis from `pg_stat_statements` or ready-made health checks, look at [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp); for several database engines (MySQL, SQL Server, SQLite, …) behind one server, look at [DBHub](https://github.com/bytebase/dbhub). pg-mcp-server focuses on secure, audited, multi-user SQL access to PostgreSQL.
 
 ## Overview
 

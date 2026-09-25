@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `package.json`: `ci:*` scripts used by GitLab CI pipelines.
 - `DOCKERHUB.md`: compact description for Docker Hub (features, comparison, quick start, screenshots). The new workflow *Docker Hub Description* publishes it whenever it changes on `main` or on manual dispatch.
 
+### Changed
+- README / Docker Hub: query plans (`EXPLAIN`, `EXPLAIN ANALYZE`) are available through `query`; the comparison with Postgres MCP Pro now names what is actually missing (index recommendations with hypothetical indexes, `pg_stat_statements` workload analysis, health checks).
+
+### Fixed
+- `query`: `json` / `jsonb` values — including `EXPLAIN (FORMAT JSON)` plans — were rendered as `[object Object]`; they are now output as JSON.
+
 ## [0.2.1] - 2026-09-25
 
 ### Fixed

@@ -333,6 +333,27 @@ describe("createMcpServer – CallTool", () => {
     expect(text).toContain("(2 rows)");
   });
 
+  it("query renders json/jsonb values as JSON instead of [object Object]", async () => {
+    mockClient.query
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ "QUERY PLAN": [{ Plan: { "Node Type": "Seq Scan", "Total Cost": 3588 } }] }] })
+      .mockResolvedValueOnce(undefined);
+    const result = await call("query", { sql: "EXPLAIN (FORMAT JSON) SELECT 1" });
+    const text = result.content[0].text;
+    expect(text).not.toContain("[object Object]");
+    expect(text).toContain('[{"Plan":{"Node Type":"Seq Scan","Total Cost":3588}}]');
+  });
+
+  it("query keeps dates and null values readable", async () => {
+    const d = new Date("2026-09-25T10:00:00Z");
+    mockClient.query
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ created_at: d, note: null, tags: ["a", "b"] }] })
+      .mockResolvedValueOnce(undefined);
+    const text = (await call("query", { sql: "SELECT created_at, note, tags FROM t" })).content[0].text;
+    expect(text).toContain(`${String(d)} |  | ["a","b"]`);
+  });
+
   it("query logs SQL text only at debug level", async () => {
     mockPool.query.mockResolvedValue({ rows: [] });
     vi.mocked(log).mockClear();
