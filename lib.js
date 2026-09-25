@@ -5,6 +5,38 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 
+// ── Logging ───────────────────────────────────────────────────────────────────
+const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+
+/** Active log level from LOG_LEVEL env var (debug|info|warn|error), default info. */
+export function getLogLevel() {
+  const lvl = (process.env.LOG_LEVEL || "info").toLowerCase();
+  return LOG_LEVELS[lvl] ? lvl : "info";
+}
+
+export function isLogEnabled(level) {
+  return LOG_LEVELS[level] >= LOG_LEVELS[getLogLevel()];
+}
+
+/** Writes `[ISO timestamp] [LEVEL] [CATEGORY] message` to stderr if level is enabled. */
+export function log(level, category, message) {
+  if (!isLogEnabled(level)) return;
+  console.error(`[${new Date().toISOString()}] [${level.toUpperCase()}] [${category}] ${message}`);
+}
+
+/** Client IP: x-real-ip → first x-forwarded-for entry → socket address. */
+export function getClientIp(req) {
+  return req.headers?.["x-real-ip"]
+    || req.headers?.["x-forwarded-for"]?.split(",")[0].trim()
+    || req.socket?.remoteAddress || "-";
+}
+
+function logAuthFailure(req, reason, tokenName) {
+  const pathname = new URL(req.url || "/", "http://x").pathname;
+  const tokenPart = tokenName ? ` token="${tokenName}"` : "";
+  log("warn", "AUTH", `result="denied"${tokenPart} action="${req.method} ${pathname}" ip="${getClientIp(req)}" reason="${reason}"`);
+}
+
 // ── File / env helpers ────────────────────────────────────────────────────────
 export function readFileEnv(envVar) {
   const path = process.env[envVar];
@@ -81,7 +113,7 @@ function decryptValue(value) {
   if (typeof value !== "string" || !value.startsWith(ENC_PREFIX)) return value;
   const key = getEncryptionKey();
   if (!key) {
-    console.error(`[${new Date().toISOString()}] [STORE] WARNING: Encrypted password found but STORE_ENCRYPTION_KEY is not set — connection will fail.`);
+    log("warn", "STORE", "Encrypted password found but STORE_ENCRYPTION_KEY is not set — connection will fail.");
     return value;
   }
   const parts = value.slice(ENC_PREFIX.length).split(":");
@@ -151,7 +183,7 @@ export function migrateTokenStore() {
     }
   }
   saveTokenStore(rawData); // re-encrypts every password
-  console.error(`[${new Date().toISOString()}] [STORE] Encrypted ${plainCount} plaintext password(s) in token store.`);
+  log("info", "STORE", `Encrypted ${plainCount} plaintext password(s) in token store.`);
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -196,7 +228,9 @@ function timingSafeEqual(a, b) {
 export function checkAdminAuth(req, res) {
   const authToken = getAuthToken();
   if (!authToken) return true;
-  if (!timingSafeEqual(extractBearer(req), authToken)) { send401(res); return false; }
+  const token = extractBearer(req);
+  if (!token) { logAuthFailure(req, "missing token"); send401(res); return false; }
+  if (!timingSafeEqual(token, authToken)) { logAuthFailure(req, "invalid admin token"); send401(res); return false; }
   return true;
 }
 
@@ -207,13 +241,14 @@ export async function checkAuth(req, res) {
   const authToken = getAuthToken();
   if (!authToken) return { ok: true, name: "anonymous", connection: null };
   const token = extractBearer(req);
-  if (!token) { send401(res); return { ok: false }; }
+  if (!token) { logAuthFailure(req, "missing token"); send401(res); return { ok: false }; }
   if (timingSafeEqual(token, authToken)) return { ok: true, name: "admin", connection: null };
   // File token check
   const hash = hashToken(token);
   const store = loadTokenStore();
-  const entry = store.tokens.find(t => t.token_hash === hash && t.active);
-  if (!entry) { send401(res); return { ok: false }; }
+  const entry = store.tokens.find(t => t.token_hash === hash);
+  if (!entry) { logAuthFailure(req, "unknown token"); send401(res); return { ok: false }; }
+  if (!entry.active) { logAuthFailure(req, "token disabled", entry.name); send401(res); return { ok: false }; }
   entry.last_used_at = new Date().toISOString();
   try { saveTokenStore(store); } catch { /* best-effort */ }
   return { ok: true, name: entry.name, connection: entry.connection || null };
@@ -232,10 +267,10 @@ export async function handleAdminRequest(req, res, { onDelete } = {}) {
   }
   const id = match[1] ? parseInt(match[1], 10) : null;
 
-  const ip = req.headers["x-real-ip"]
-    || req.headers["x-forwarded-for"]?.split(",")[0].trim()
-    || req.socket?.remoteAddress || "-";
-  console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}"`);
+  const ip = getClientIp(req);
+  // Auth disabled → requests are unauthenticated, don't attribute them to the admin token
+  const tokenName = getAuthToken() ? "admin" : "anonymous";
+  log("info", "ADMIN", `token="${tokenName}" action="${req.method} ${pathname}" ip="${ip}"`);
 
   try {
     // GET /admin/tokens – list all tokens (token_hash excluded)
@@ -337,8 +372,8 @@ export async function handleAdminRequest(req, res, { onDelete } = {}) {
     res.writeHead(405, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Method Not Allowed" }));
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] [ADMIN] token="admin" action="${req.method} ${pathname}" ip="${ip}" error=${JSON.stringify(err.message)}`);
-    if (err.stack) console.error(err.stack);
+    log("error", "ADMIN", `token="${tokenName}" action="${req.method} ${pathname}" ip="${ip}" error=${JSON.stringify(err.message)}`);
+    if (err.stack) log("debug", "ADMIN", err.stack);
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }

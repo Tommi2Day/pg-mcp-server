@@ -38,6 +38,8 @@ server:
   # Name shown in MCP clients (e.g. Claude browser tab) and the Admin UI.
   # Default: pg-mcp-server
   name: ""
+  # Log level: debug | info | warn | error. SQL text of tool calls is only logged at debug.
+  logLevel: info
   port: 3000
   transport: http
 

@@ -25,6 +25,7 @@ Connects Claude to PostgreSQL via the Model Context Protocol (MCP).
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
@@ -178,6 +179,7 @@ Key variables in `.env`:
 |----------|---------|-------------|
 | `AUTH_TOKEN` | _(empty)_ | Admin bearer token; leave empty to disable auth |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STORE_ENCRYPTION_KEY` | _(empty)_ | Passphrase for AES-256-GCM encryption of stored connection passwords |
 | `MCP_PORT` | `3000` | Host port for the MCP server |
 | `PG_HOST` | `postgres-test` | PostgreSQL host (use `host.docker.internal` for a local DB outside Docker) |
@@ -714,25 +716,35 @@ curl -X DELETE http://localhost:3000/admin/tokens/<id> \
 
 ### Logging
 
-All log lines go to **stderr** and are visible in `docker logs <name>`. Each line carries an ISO 8601 timestamp and a bracketed prefix:
+All log lines go to **stderr** and are visible in `docker logs <name>`. Each line carries an ISO 8601 timestamp, a level and a category:
 
 ```
-[2026-03-28T19:32:51.654Z] [MCP]   token="claude-desktop" action="list_tables" ip="192.168.1.10" params={"schema":"public"}
-[2026-03-28T19:32:51.859Z] [MCP]   token="claude-desktop" action="query" ip="192.168.1.10" error="column \"x\" does not exist"
-[2026-03-28T19:32:51.859Z] [ADMIN] token="admin"          action="POST /admin/tokens" ip="192.168.1.10"
-[2026-03-28T19:32:52.001Z] [ADMIN] token="admin"          action="GET /admin/tokens" ip="192.168.1.10" error="ENOENT: ..."
-[2026-03-28T19:32:52.100Z] [DB]    Pool error: Connection terminated unexpectedly
-[2026-03-28T19:32:52.200Z] [HTTP]  Unhandled error for POST /mcp: socket hang up
-[2026-03-28T19:33:00.000Z] [FATAL] Unhandled rejection: getaddrinfo ENOTFOUND db.example.com
+[2026-03-28T19:32:50.100Z] [INFO] [SESSION] token="claude-desktop" action="start" session="3f2c…" ip="192.168.1.10"
+[2026-03-28T19:32:51.654Z] [INFO] [MCP] token="claude-desktop" action="list_tables" ip="192.168.1.10" params={"schema":"public"}
+[2026-03-28T19:32:51.700Z] [INFO] [MCP] token="claude-desktop" action="query" ip="192.168.1.10" params={"sql":"<42 chars, LOG_LEVEL=debug to show>"}
+[2026-03-28T19:32:51.859Z] [ERROR] [MCP] token="claude-desktop" action="query" ip="192.168.1.10" error="column \"x\" does not exist"
+[2026-03-28T19:32:51.900Z] [INFO] [SESSION] token="claude-desktop" action="stop" session="3f2c…" ip="192.168.1.10" duration=312s
+[2026-03-28T19:32:51.950Z] [WARN] [AUTH] result="denied" action="POST /mcp" ip="10.1.2.3" reason="unknown token"
+[2026-03-28T19:32:51.960Z] [WARN] [AUTH] result="denied" token="old-client" action="POST /mcp" ip="10.1.2.3" reason="token disabled"
+[2026-03-28T19:32:51.970Z] [INFO] [ADMIN] token="admin" action="POST /admin/tokens" ip="192.168.1.10"
+[2026-03-28T19:32:52.001Z] [ERROR] [ADMIN] token="admin" action="GET /admin/tokens" ip="192.168.1.10" error="ENOENT: ..."
+[2026-03-28T19:32:52.100Z] [ERROR] [DB] Pool error: Connection terminated unexpectedly
+[2026-03-28T19:32:52.200Z] [ERROR] [HTTP] Unhandled error for POST /mcp: socket hang up
+[2026-03-28T19:33:00.000Z] [ERROR] [FATAL] Unhandled rejection: getaddrinfo ENOTFOUND db.example.com
 ```
 
-| Prefix | When |
-|--------|------|
-| `[MCP]` | MCP tool call (success and error). Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's name. `params` is omitted for tools with no arguments. |
-| `[ADMIN]` | Admin API request. Always `token="admin"`. Errors include `error="..."`. |
-| `[DB]` | Idle pool error (e.g. dropped connection) from the default or a per-token pool. |
-| `[HTTP]` | Unhandled error in the HTTP request handler, or failure to read `admin.html`. |
-| `[FATAL]` | Unhandled promise rejection or uncaught exception — the process exits after logging. |
+`LOG_LEVEL` (`debug` / `info` / `warn` / `error`, default `info`) sets the minimum level that is written.
+
+| Category | Level | When |
+|----------|-------|------|
+| `[MCP]` | info / error | MCP tool call (success and error). Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's name. `params` is omitted for tools with no arguments. The `sql` parameter is replaced by its length unless `LOG_LEVEL=debug`. |
+| `[SESSION]` | info | HTTP MCP session start and stop (with duration). Stop is logged when the client ends the session (`DELETE /mcp`) or the transport closes; clients that just disappear produce no stop line. |
+| `[AUTH]` | warn | Rejected request (401). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name). The presented token is never logged. |
+| `[ADMIN]` | info / error | Admin API request. `token="admin"` when authenticated with `AUTH_TOKEN`, `token="anonymous"` when auth is disabled. Stack traces of admin errors at `debug`. |
+| `[STORE]` | info / warn | Password migration and missing `STORE_ENCRYPTION_KEY`. |
+| `[DB]` | error | Idle pool error (e.g. dropped connection) from the default or a per-token pool. |
+| `[HTTP]` | error | Unhandled error in the HTTP request handler. |
+| `[FATAL]` | error | Unhandled promise rejection or uncaught exception — the process exits after logging. |
 
 The client IP is resolved in order: `x-real-ip` header → first entry of `x-forwarded-for` → TCP socket address. When running Docker without a reverse proxy, the socket address is the Docker bridge IP — deploy behind nginx or Traefik to log the real client IP.
 

@@ -29,6 +29,7 @@ import { createRequire } from "node:module";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
   checkAuth, checkAdminAuth, handleAdminRequest, migrateTokenStore,
+  log, isLogEnabled, getClientIp, getLogLevel,
 } from "./lib.js";
 
 const { Pool } = pg;
@@ -57,7 +58,7 @@ if (isMain) {
     max: 5,
   });
   pool.on?.("error", (err) => {
-    console.error(`[${new Date().toISOString()}] [DB] Pool error: ${err.message}`);
+    log("error", "DB", `Pool error: ${err.message}`);
   });
 }
 
@@ -90,7 +91,7 @@ export function getPool(connection) {
       max: 5,
     });
     p.on?.("error", (err) => {
-      console.error(`[${new Date().toISOString()}] [DB] Pool error (${connection.host || "default"}): ${err.message}`);
+      log("error", "DB", `Pool error (${connection.host || "default"}): ${err.message}`);
     });
     poolCache.set(key, p);
   }
@@ -167,8 +168,7 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const argsStr = args && Object.keys(args).length ? " params=" + JSON.stringify(args) : "";
-    console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}" ip="${clientIp}"${argsStr}`);
+    log("info", "MCP", `token="${tokenName}" action="${name}" ip="${clientIp}"${formatToolParams(args)}`);
     try {
       switch (name) {
         case "test_connection": {
@@ -267,12 +267,20 @@ export function createMcpServer(dbPool = pool, tokenName = "unknown", clientIp =
       }
     } catch (err) {
       const msg = err?.message || err?.toString() || JSON.stringify(err);
-      console.error(`[${new Date().toISOString()}] [MCP] token="${tokenName}" action="${name}" ip="${clientIp}" error=${JSON.stringify(msg)}`);
+      log("error", "MCP", `token="${tokenName}" action="${name}" ip="${clientIp}" error=${JSON.stringify(msg)}`);
       return { content: [{ type: "text", text: `❌ Error: ${msg}` }], isError: true };
     }
   });
 
   return server;
+}
+
+/** Tool params for the log line. SQL text is only included at debug level;
+ *  otherwise it is replaced by its length so statements with literals don't leak into logs. */
+function formatToolParams(args) {
+  if (!args || !Object.keys(args).length) return "";
+  if (isLogEnabled("debug") || typeof args.sql !== "string") return " params=" + JSON.stringify(args);
+  return " params=" + JSON.stringify({ ...args, sql: `<${args.sql.length} chars, LOG_LEVEL=debug to show>` });
 }
 
 // ── Session store (stateful HTTP sessions) ────────────────────────────────────
@@ -283,8 +291,8 @@ export async function handleRequest(req, res) {
   try {
     await _handleRequest(req, res);
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] [HTTP] Unhandled error for ${req.method} ${req.url}: ${err.message}`);
-    if (err.stack) console.error(err.stack);
+    log("error", "HTTP", `Unhandled error for ${req.method} ${req.url}: ${err.message}`);
+    if (err.stack) log("error", "HTTP", err.stack);
     if (!res.headersSent) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Internal server error" }));
@@ -348,16 +356,23 @@ async function _handleRequest(req, res) {
     } else {
       // New session — resolve pool for this token
       const dbPool = getPool(auth.connection);
+      const clientIp = getClientIp(req);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
           sessions.set(id, transport);
-          transport.onclose = () => { sessions.delete(id); };
+          const startedAt = Date.now();
+          log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"`);
+          // Chain instead of overwrite: server.connect() already installed its own onclose
+          const prevOnClose = transport.onclose;
+          transport.onclose = () => {
+            sessions.delete(id);
+            const duration = Math.round((Date.now() - startedAt) / 1000);
+            log("info", "SESSION", `token="${auth.name}" action="stop" session="${id}" ip="${clientIp}" duration=${duration}s`);
+            prevOnClose?.();
+          };
         },
       });
-      const clientIp = req.headers["x-real-ip"]
-        || req.headers["x-forwarded-for"]?.split(",")[0].trim()
-        || req.socket?.remoteAddress || "-";
       const server = createMcpServer(dbPool, auth.name, clientIp);
       await server.connect(transport);
       await transport.handleRequest(req, res);
@@ -372,12 +387,12 @@ async function _handleRequest(req, res) {
 if (isMain) {
   process.on("unhandledRejection", (reason) => {
     const msg = reason instanceof Error ? reason.message : String(reason);
-    console.error(`[${new Date().toISOString()}] [FATAL] Unhandled rejection: ${msg}`);
-    if (reason instanceof Error && reason.stack) console.error(reason.stack);
+    log("error", "FATAL", `Unhandled rejection: ${msg}`);
+    if (reason instanceof Error && reason.stack) log("error", "FATAL", reason.stack);
   });
   process.on("uncaughtException", (err) => {
-    console.error(`[${new Date().toISOString()}] [FATAL] Uncaught exception: ${err.message}`);
-    if (err.stack) console.error(err.stack);
+    log("error", "FATAL", `Uncaught exception: ${err.message}`);
+    if (err.stack) log("error", "FATAL", err.stack);
     process.exit(1);
   });
 }
@@ -418,6 +433,7 @@ if (isMain) {
         console.error(`  Admin API    : https://localhost:${PORT}/admin/tokens`);
         console.error(`  Health check : https://localhost:${PORT}/health`);
         console.error(`  Auth         : ${authInfo}`);
+        console.error(`  Log level    : ${getLogLevel()}`);
       });
     } else {
       // ── HTTP ───────────────────────────────────────────────────────────────
@@ -428,6 +444,7 @@ if (isMain) {
         console.error(`  Admin API    : http://localhost:${PORT}/admin/tokens`);
         console.error(`  Health check : http://localhost:${PORT}/health`);
         console.error(`  Auth         : ${authInfo}`);
+        console.error(`  Log level    : ${getLogLevel()}`);
       });
     }
   } else {

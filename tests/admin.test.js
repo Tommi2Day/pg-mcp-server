@@ -56,6 +56,22 @@ describe("handleAdminRequest", () => {
     expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
   });
 
+  // ── Logging ─────────────────────────────────────────────────────────────────
+  it("logs admin requests as token=\"admin\" when AUTH_TOKEN is set", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await handleAdminRequest(makeReq("GET", "/admin/tokens"), makeRes());
+    expect(errSpy.mock.calls[0][0]).toContain('[INFO] [ADMIN] token="admin" action="GET /admin/tokens"');
+    errSpy.mockRestore();
+  });
+
+  it("logs admin requests as token=\"anonymous\" when auth is disabled", async () => {
+    delete process.env.AUTH_TOKEN;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await handleAdminRequest(makeReq("GET", "/admin/tokens"), makeRes());
+    expect(errSpy.mock.calls[0][0]).toContain('[ADMIN] token="anonymous"');
+    errSpy.mockRestore();
+  });
+
   // ── GET /admin/tokens ───────────────────────────────────────────────────────
   it("GET lists all tokens without exposing token_hash", async () => {
     const tokens = [

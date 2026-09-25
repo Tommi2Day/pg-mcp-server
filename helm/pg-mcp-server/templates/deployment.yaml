@@ -54,6 +54,8 @@ spec:
             - name: MCP_SERVER_NAME
               value: {{ .Values.server.name | quote }}
             {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.server.logLevel | default "info" | quote }}
 
             # ── HTTP TLS ──────────────────────────────────────────────────
             {{- if .Values.server.tlsEnabled }}

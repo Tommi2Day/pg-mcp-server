@@ -44,7 +44,7 @@ helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
 
 **Two source files, no build step:**
 
-- **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
+- **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `log`, `getLogLevel`, `isLogEnabled`, `getClientIp`, `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
 - **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). The result is cached as a `Buffer` in `cachedAdminHtml`.
 
@@ -88,12 +88,21 @@ When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-
 
 ### Logging
 
+All structured log lines go through `log(level, category, message)` in `lib.js` (never raw `console.error`, except the startup banner and fatal config errors):
+
 ```
-[ISO timestamp] [MCP]   token="<name>" action="<tool>" ip="<ip>" params={...}
-[ISO timestamp] [ADMIN] token="admin"  action="<METHOD> <path>" ip="<ip>"
+[ISO timestamp] [INFO] [MCP]     token="<name>" action="<tool>" ip="<ip>" params={...}
+[ISO timestamp] [INFO] [SESSION] token="<name>" action="start|stop" session="<id>" ip="<ip>" [duration=Ns]
+[ISO timestamp] [WARN] [AUTH]    result="denied" [token="<name>"] action="<METHOD> <path>" ip="<ip>" reason="..."
+[ISO timestamp] [INFO] [ADMIN]   token="admin|anonymous" action="<METHOD> <path>" ip="<ip>"
 ```
 
-Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's `name` field. `clientIp` resolved: `x-real-ip` → `x-forwarded-for` first entry → socket address.
+- `LOG_LEVEL` env var (`debug|info|warn|error`, default `info`) — read on every call via `getLogLevel()`/`isLogEnabled()`
+- The `sql` tool param is replaced by `<N chars, …>` unless debug is enabled (`formatToolParams` in `index.js`); presented tokens are never logged
+- Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, or the file token's `name` field
+- `getClientIp(req)`: `x-real-ip` → `x-forwarded-for` first entry → socket address
+- Session stop is logged from `transport.onclose`, which is **chained** with the handler `server.connect()` installed — don't overwrite it
+- `index.test.js` mocks `log`, `isLogEnabled`, `getLogLevel`, `getClientIp` from `lib.js`
 
 ### Docker entrypoint
 
@@ -108,6 +117,7 @@ Key values:
 - `tls.san` → `TLS_SAN` env var (additional SANs for self-signed cert)
 - `server.tlsEnabled: true` → switches health probe scheme to HTTPS
 - `server.name` → `MCP_SERVER_NAME` env var (server name shown in MCP clients and Admin UI; default `pg-mcp-server`)
+- `server.logLevel` → `LOG_LEVEL` env var (default `info`)
 - `persistence.enabled: true` → creates a PVC for the token store; `persistence.existingClaim` to use a pre-existing one
 - Service and container port are named `http` (ingress uses this name — must match)
 

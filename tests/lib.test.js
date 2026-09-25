@@ -14,6 +14,10 @@ import {
   saveTokenStore,
   migrateTokenStore,
   clearTokenStoreCache,
+  log,
+  getLogLevel,
+  isLogEnabled,
+  getClientIp,
 } from "../lib.js";
 
 // Clear cache and any unconsumed mockReturnValueOnce queue before every test.
@@ -435,5 +439,82 @@ describe("migrateTokenStore", () => {
     mockReadFile.mockReturnValueOnce(JSON.stringify(written));
     const loaded = loadTokenStore();
     expect(loaded.tokens[0].connection.password).toBe("my-db-password");
+  });
+});
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+describe("logging", () => {
+  let errSpy;
+  beforeEach(() => { errSpy = vi.spyOn(console, "error").mockImplementation(() => {}); });
+  afterEach(() => {
+    errSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+    delete process.env.AUTH_TOKEN;
+  });
+
+  const lines = () => errSpy.mock.calls.map(c => c[0]);
+
+  it("defaults to info and falls back to info for unknown values", () => {
+    expect(getLogLevel()).toBe("info");
+    process.env.LOG_LEVEL = "verbose";
+    expect(getLogLevel()).toBe("info");
+    process.env.LOG_LEVEL = "DEBUG";
+    expect(getLogLevel()).toBe("debug");
+  });
+
+  it("filters messages below the active level", () => {
+    expect(isLogEnabled("debug")).toBe(false);
+    expect(isLogEnabled("info")).toBe(true);
+    log("debug", "X", "hidden");
+    log("info", "X", "shown");
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toMatch(/^\[.+\] \[INFO\] \[X\] shown$/);
+
+    process.env.LOG_LEVEL = "warn";
+    log("info", "X", "hidden");
+    log("warn", "X", "shown");
+    expect(lines()).toHaveLength(2);
+  });
+
+  it("getClientIp prefers x-real-ip, then x-forwarded-for, then socket", () => {
+    expect(getClientIp({ headers: { "x-real-ip": "1.1.1.1", "x-forwarded-for": "2.2.2.2" } })).toBe("1.1.1.1");
+    expect(getClientIp({ headers: { "x-forwarded-for": "2.2.2.2, 3.3.3.3" } })).toBe("2.2.2.2");
+    expect(getClientIp({ headers: {}, socket: { remoteAddress: "4.4.4.4" } })).toBe("4.4.4.4");
+    expect(getClientIp({ headers: {} })).toBe("-");
+  });
+
+  it("checkAdminAuth logs a warning for an invalid admin token", () => {
+    process.env.AUTH_TOKEN = "secret";
+    const req = makeReq("GET", "/admin/tokens", { headers: { authorization: "Bearer wrong", "x-real-ip": "9.9.9.9" } });
+    checkAdminAuth(req, makeRes());
+    expect(lines()[0]).toContain("[WARN] [AUTH]");
+    expect(lines()[0]).toContain('action="GET /admin/tokens" ip="9.9.9.9" reason="invalid admin token"');
+    expect(lines()[0]).not.toContain("wrong");
+  });
+
+  it("checkAuth logs missing, unknown and disabled tokens", async () => {
+    process.env.AUTH_TOKEN = "secret";
+    await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "" } }), makeRes());
+    expect(lines()[0]).toContain('reason="missing token"');
+
+    mockReadFile.mockReturnValueOnce(JSON.stringify({ tokens: [], next_id: 1 }));
+    await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer nope" } }), makeRes());
+    expect(lines()[1]).toContain('reason="unknown token"');
+    expect(lines()[1]).not.toContain("nope");
+
+    clearTokenStoreCache();
+    mockReadFile.mockReturnValueOnce(JSON.stringify({
+      tokens: [{ id: 1, name: "old-client", token_hash: hashToken("tok"), active: false, connection: null }],
+      next_id: 2,
+    }));
+    await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer tok" } }), makeRes());
+    expect(lines()[2]).toContain('token="old-client"');
+    expect(lines()[2]).toContain('reason="token disabled"');
+  });
+
+  it("checkAuth does not log on success", async () => {
+    process.env.AUTH_TOKEN = "secret";
+    await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } }), makeRes());
+    expect(errSpy).not.toHaveBeenCalled();
   });
 });

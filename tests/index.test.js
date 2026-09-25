@@ -48,10 +48,15 @@ vi.mock("../lib.js", () => ({
   checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin", connection: null }),
   checkAdminAuth: vi.fn(() => true),
   handleAdminRequest: vi.fn().mockResolvedValue(undefined),
+  log: vi.fn(),
+  isLogEnabled: vi.fn(() => false),
+  getLogLevel: vi.fn(() => "info"),
+  getClientIp: vi.fn(() => "10.0.0.1"),
 }));
 
 import { handleRequest, createMcpServer, getPool, poolCache, sessions, pool } from "../index.js";
-import { checkAuth, handleAdminRequest } from "../lib.js";
+import { checkAuth, handleAdminRequest, log, isLogEnabled } from "../lib.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 // ── handleRequest ─────────────────────────────────────────────────────────────
 describe("handleRequest", () => {
@@ -123,6 +128,25 @@ describe("handleRequest", () => {
     const res = makeRes();
     await handleRequest(req, res);
     expect(mockTransport.handleRequest).toHaveBeenCalledWith(req, res);
+  });
+
+  it("/mcp logs session start and stop, keeping the previous onclose handler", async () => {
+    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "test-user", connection: null });
+    vi.mocked(log).mockClear();
+    await handleRequest(makeReq("POST", "/mcp"), makeRes());
+    const opts = vi.mocked(StreamableHTTPServerTransport).mock.calls.at(-1)[0];
+    const prevOnClose = vi.fn();
+    mockTransport.onclose = prevOnClose;
+
+    opts.onsessioninitialized("sess-1");
+    expect(sessions.has("sess-1")).toBe(true);
+    expect(log).toHaveBeenCalledWith("info", "SESSION", expect.stringContaining('token="test-user" action="start" session="sess-1" ip="10.0.0.1"'));
+
+    mockTransport.onclose();
+    expect(sessions.has("sess-1")).toBe(false);
+    expect(prevOnClose).toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("info", "SESSION", expect.stringMatching(/action="stop" session="sess-1" .*duration=\d+s/));
+    delete mockTransport.onclose;
   });
 
   it("unknown route returns 404", async () => {
@@ -307,6 +331,21 @@ describe("createMcpServer – CallTool", () => {
     expect(text).toContain("id | email");
     expect(text).toContain("a@example.com");
     expect(text).toContain("(2 rows)");
+  });
+
+  it("query logs SQL text only at debug level", async () => {
+    mockPool.query.mockResolvedValue({ rows: [] });
+    vi.mocked(log).mockClear();
+    await call("query", { sql: "SELECT 'secret'" });
+    const infoLine = vi.mocked(log).mock.calls.find(c => c[1] === "MCP")[2];
+    expect(infoLine).toContain('action="query"');
+    expect(infoLine).not.toContain("secret");
+    expect(infoLine).toContain("15 chars");
+
+    vi.mocked(isLogEnabled).mockReturnValueOnce(true);
+    vi.mocked(log).mockClear();
+    await call("query", { sql: "SELECT 'secret'" });
+    expect(vi.mocked(log).mock.calls.find(c => c[1] === "MCP")[2]).toContain("SELECT 'secret'");
   });
 
   it("query passes parameters to pool.query", async () => {
