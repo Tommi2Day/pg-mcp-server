@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PostgreSQL MCP Server",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -300,6 +300,9 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid X-Pg-* header (unknown header, invalid value, user without password, target without credentials); JSON-RPC error body"
+          },
           "401": {
             "description": "Missing or invalid Bearer token"
           },
@@ -308,9 +311,6 @@
           },
           "503": {
             "description": "AUTH_TOKEN not configured on the server"
-          },
-          "400": {
-            "description": "Invalid X-Pg-* header (unknown header, invalid value, user without password, target without credentials); JSON-RPC error body"
           }
         }
       }
