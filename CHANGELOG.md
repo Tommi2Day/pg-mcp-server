@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
 ### Added
 - Client-supplied connections: a token's `client_connection` (`none` default, `credentials`, `full`) lets its MCP
   clients send their own database user/password — and with `full` host, port, database and ssl — as `X-Pg-*`
@@ -16,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admin UI branding: `ADMIN_LOGO` (logo file or URL) replaces the icon, `ADMIN_THEME_CSS` loads a stylesheet that
   overrides the color/font variables; all colors of `admin.html` are now CSS variables. Example theme in
   `examples/admin-theme/`, screenshots in the README; Helm values `adminUi.brandingConfigMap` / `themeCss` / `logo`
+
+### Changed
+- Source files (`index.js`, `lib.js`, `branding.js`, `admin.html`) moved to `src/`; for local stdio setups the
+  entry point is now `node /path/to/src/index.js` (`npm start` and the Docker image are used as before)
 
 ## [0.3.0] - 2026-09-25
 
@@ -227,7 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.0...0.2.1

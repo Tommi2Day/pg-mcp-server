@@ -4,7 +4,7 @@
 # Usage:
 #   ./lint.sh              # all files
 #   ./lint.sh --fix        # auto-fix issues
-#   ./lint.sh lib.js       # single file
+#   ./lint.sh src/lib.js   # single file
 set -eo pipefail
 
 # pwd -W returns Windows paths (C:/...) in Git Bash – required for Docker volume mounts

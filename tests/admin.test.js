@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { handleAdminRequest, clearTokenStoreCache } from "../lib.js";
+import { handleAdminRequest, clearTokenStoreCache } from "../src/lib.js";
 import { makeReq, makeRes, resBody } from "./helpers.js";
 
 // ── Mock node:fs ──────────────────────────────────────────────────────────────

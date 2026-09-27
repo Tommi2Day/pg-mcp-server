@@ -4,12 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-vi.mock("../lib.js", () => ({ log: vi.fn() }));
+vi.mock("../src/lib.js", () => ({ log: vi.fn() }));
 
-import { loadAdminBranding, renderAdminHtml, logoDataUri, escapeHtml } from "../branding.js";
-import { log } from "../lib.js";
+import { loadAdminBranding, renderAdminHtml, logoDataUri, escapeHtml } from "../src/branding.js";
+import { log } from "../src/lib.js";
 
-const template = fs.readFileSync(new URL("../admin.html", import.meta.url), "utf8");
+const template = fs.readFileSync(new URL("../src/admin.html", import.meta.url), "utf8");
 
 function tmpFile(name, content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "branding-"));

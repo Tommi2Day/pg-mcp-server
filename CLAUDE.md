@@ -42,11 +42,11 @@ helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
 
 ## Architecture
 
-**Source files, no build step:**
+**Source files in `src/`, no build step** (tests import `../src/*.js`; the Dockerfile copies `src/` to `/app/src`):
 
 - **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `log`, `getLogLevel`, `isLogEnabled`, `getClientIp`, `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
-- **`branding.js`** — admin UI branding: `loadAdminBranding` (`ADMIN_THEME_CSS`, `ADMIN_LOGO` → data URI or URL), `renderAdminHtml` fills `__SERVER_NAME__` (escaped), `<!--theme-->` and the `<!--logo-->…<!--/logo-->` markers. All colors in `admin.html` are `:root` CSS variables — don't add hard-coded colors; example in `examples/admin-theme/`. Listed in the Dockerfile `COPY`.
+- **`branding.js`** — admin UI branding: `loadAdminBranding` (`ADMIN_THEME_CSS`, `ADMIN_LOGO` → data URI or URL), `renderAdminHtml` fills `__SERVER_NAME__` (escaped), `<!--theme-->` and the `<!--logo-->…<!--/logo-->` markers. All colors in `admin.html` are `:root` CSS variables — don't add hard-coded colors; example in `examples/admin-theme/`.
 - **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). Rendered once by `renderAdminHtml` (`branding.js`) and cached as a `Buffer` in `cachedAdminHtml`.
 
 ### isMain guard
@@ -127,7 +127,7 @@ All structured log lines go through `log(level, category, message)` in `lib.js` 
 
 ### Docker entrypoint
 
-The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
+The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node src/index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
 
 ### Helm chart (`helm/pg-mcp-server/`)
 

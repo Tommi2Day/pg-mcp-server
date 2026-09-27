@@ -35,7 +35,7 @@ import {
 import { loadAdminBranding, renderAdminHtml } from "./branding.js";
 
 const { Pool } = pg;
-const { version } = createRequire(import.meta.url)("./package.json");
+const { version } = createRequire(import.meta.url)("../package.json");
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
 const mcpServerName = process.env.MCP_SERVER_NAME || "pg-mcp-server";

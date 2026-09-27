@@ -41,7 +41,7 @@ vi.mock("@modelcontextprotocol/sdk/types.js", () => ({
   CallToolRequestSchema: "CALL_TOOL",
 }));
 
-vi.mock("../lib.js", async (importOriginal) => {
+vi.mock("../src/lib.js", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     clientConnectionFromHeaders: actual.clientConnectionFromHeaders,
@@ -60,8 +60,8 @@ vi.mock("../lib.js", async (importOriginal) => {
   };
 });
 
-import { handleRequest, createMcpServer, getPool, applicationName, poolCache, sessions } from "../index.js";
-import { checkAuth, handleAdminRequest, log, isLogEnabled } from "../lib.js";
+import { handleRequest, createMcpServer, getPool, applicationName, poolCache, sessions } from "../src/index.js";
+import { checkAuth, handleAdminRequest, log, isLogEnabled } from "../src/lib.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 // ── handleRequest ─────────────────────────────────────────────────────────────

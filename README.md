@@ -157,7 +157,7 @@ services:
 
 ```bash
 npm install
-node index.js
+node src/index.js
 ```
 
 `claude_desktop_config.json`:
@@ -166,7 +166,7 @@ node index.js
   "mcpServers": {
     "postgresql": {
       "command": "node",
-      "args": ["/path/to/index.js"],
+      "args": ["/path/to/src/index.js"],
       "env": {
         "PG_HOST": "localhost",
         "PG_DATABASE": "mydb",
@@ -556,7 +556,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
   --header "Authorization: Bearer <AUTH_TOKEN>"
 
 # stdio (local Node.js)
-claude mcp add postgresql node /path/to/index.js \
+claude mcp add postgresql node /path/to/src/index.js \
   --env PG_HOST=localhost \
   --env PG_DATABASE=mydb \
   --env PG_USER=user \
@@ -591,7 +591,7 @@ Create `.vscode/mcp.json` in your project root (VS Code 1.99+):
     "postgresql": {
       "type": "stdio",
       "command": "node",
-      "args": ["/path/to/index.js"],
+      "args": ["/path/to/src/index.js"],
       "env": {
         "PG_HOST": "localhost",
         "PG_DATABASE": "mydb",
@@ -623,7 +623,7 @@ opencode mcp add
 opencode mcp add
   Name     →  postgresql
   Type     →  local
-  Command  →  node /path/to/index.js
+  Command  →  node /path/to/src/index.js
   Env PG_HOST      →  localhost
   Env PG_DATABASE  →  mydb
   Env PG_USER      →  user
@@ -770,7 +770,7 @@ Both files are read once at startup; an unreadable file is logged as `[WARN] [CO
 used. The design is served to everyone who opens `/admin` (also before sign-in), so do not put anything
 confidential into it.
 
-All colors of the UI are CSS variables in the `:root` block at the top of [`admin.html`](admin.html):
+All colors of the UI are CSS variables in the `:root` block at the top of [`admin.html`](src/admin.html):
 
 | Variable | Used for |
 |----------|----------|

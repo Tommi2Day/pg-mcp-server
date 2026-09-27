@@ -22,7 +22,7 @@ import {
   clientHeaderName,
   applyClientConnection,
   parseClientConnectionMode,
-} from "../lib.js";
+} from "../src/lib.js";
 
 // Clear cache and any unconsumed mockReturnValueOnce queue before every test.
 // When loadTokenStore() hits the cache it skips the fs mock, leaving pending once values

@@ -74,4 +74,4 @@ fi
 # uid 1000 since the container no longer runs as root.
 mkdir -p "$(dirname "${TOKENS_FILE:-/data/tokens.json}")"
 
-exec node index.js
+exec node src/index.js
