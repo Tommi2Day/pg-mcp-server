@@ -31,6 +31,7 @@ import {
   checkAuth, checkAdminAuth, handleAdminRequest, migrateTokenStore,
   log, isLogEnabled, getClientIp, getLogLevel,
 } from "./lib.js";
+import { loadAdminBranding, renderAdminHtml } from "./branding.js";
 
 const { Pool } = pg;
 const { version } = createRequire(import.meta.url)("./package.json");
@@ -41,7 +42,7 @@ const mcpServerName = process.env.MCP_SERVER_NAME || "pg-mcp-server";
 let cachedAdminHtml;
 try {
   const raw = fs.readFileSync(new URL("./admin.html", import.meta.url), "utf8");
-  cachedAdminHtml = Buffer.from(raw.replaceAll("__SERVER_NAME__", mcpServerName));
+  cachedAdminHtml = Buffer.from(renderAdminHtml(raw, mcpServerName, loadAdminBranding()));
 } catch { /* admin UI not available */ }
 
 // ── DB pools ──────────────────────────────────────────────────────────────────

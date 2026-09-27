@@ -4,7 +4,7 @@ RUN apk add --no-cache openssl curl
 
 WORKDIR /app
 
-COPY ["package.json","package-lock.json","index.js","lib.js","admin.html","docker-entrypoint.sh", "/app/"]
+COPY ["package.json","package-lock.json","index.js","lib.js","branding.js","admin.html","docker-entrypoint.sh", "/app/"]
 RUN npm install --omit=dev && chmod +x /app/docker-entrypoint.sh
 RUN mkdir -p /certs /data && chown -R node:node /certs /data
 

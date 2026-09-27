@@ -21,6 +21,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
+- Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
 
 **Security & transport**
@@ -75,6 +76,8 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
+| `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
+| `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
@@ -660,6 +663,70 @@ The session is stored in `sessionStorage` (cleared when the browser tab is close
     <td width="33%" valign="top"><b>Login</b><br><img src="docs/images/admin-login.png" alt="Admin UI: login"></td>
     <td width="33%" valign="top"><b>New token with its own DB connection</b><br><img src="docs/images/admin-create-token.png" alt="Admin UI: create token with custom connection"></td>
     <td width="33%" valign="top"><b>Token value is shown only once</b><br><img src="docs/images/admin-token-created.png" alt="Admin UI: one-time token display"></td>
+  </tr>
+</table>
+
+### Admin UI branding
+
+The admin UI can be switched to a corporate design without rebuilding the image:
+
+| Variable | Effect |
+|----------|--------|
+| `ADMIN_LOGO` | Replaces the database icon on the login card and in the header. A file is embedded as data URI (`.svg`, `.png`, `.jpg`, `.gif`, `.webp`); an `http(s)://` URL is used as is (the browser must be able to reach it). |
+| `ADMIN_THEME_CSS` | Stylesheet injected after the built-in styles. Override the CSS variables below; any other CSS rule is allowed, too. |
+| `MCP_SERVER_NAME` | Title next to the logo and in the browser tab. |
+
+Both files are read once at startup; an unreadable file is logged as `[WARN] [CONFIG]` and the built-in design is
+used. The design is served to everyone who opens `/admin` (also before sign-in), so do not put anything
+confidential into it.
+
+All colors of the UI are CSS variables in the `:root` block at the top of [`admin.html`](admin.html):
+
+| Variable | Used for |
+|----------|----------|
+| `--primary`, `--primary-dk`, `--on-primary` | Buttons, links, toggles; hover color; text on primary |
+| `--border-focus`, `--focus-ring` | Focused inputs |
+| `--header-bg`, `--header-text`, `--header-muted`, `--header-border`, `--header-hover` | Top bar and its buttons |
+| `--brand-from`, `--brand-to` | Gradient of the built-in icon (without `ADMIN_LOGO`) |
+| `--bg`, `--surface`, `--surface-alt`, `--row-hover`, `--border`, `--border-light` | Page, cards, table header, rows |
+| `--text`, `--text-muted`, `--text-faint` | Text colors |
+| `--success*`, `--danger*`, `--toggle-off` | Status badges, alerts, delete dialog, switched-off toggles |
+| `--font`, `--radius` | Font stack, corner radius of cards and dialogs |
+| `--logo-height`, `--header-logo-height` | Logo height on the login card (40px) and in the header (28px) |
+
+[`examples/admin-theme/`](examples/admin-theme) contains a complete example (fictional "ACME data" design: light
+header with accent bar, teal primary color, own logo):
+
+```css
+:root {
+  --primary:      #00857c;
+  --primary-dk:   #006b63;
+  --header-bg:    #ffffff;
+  --header-text:  #12333a;
+  --font:         "Segoe UI", Arial, Helvetica, sans-serif;
+}
+header { border-bottom: 3px solid #f2a900; }   /* additional rules are fine */
+```
+
+```bash
+docker run -d -p 3000:3000 \
+  -v "$PWD/examples/admin-theme:/branding:ro" \
+  -e ADMIN_THEME_CSS=/branding/theme.css -e ADMIN_LOGO=/branding/logo.svg \
+  -e MCP_SERVER_NAME="ACME PostgreSQL MCP" … tommi2day/pg-mcp-server
+```
+
+With Helm put the files into a ConfigMap and set `adminUi.brandingConfigMap`, `adminUi.themeCss` and
+`adminUi.logo` (see [values.yaml](helm/pg-mcp-server/values.yaml)):
+
+```bash
+kubectl -n mcp create configmap mcp-branding \
+  --from-file=examples/admin-theme/theme.css --from-file=examples/admin-theme/logo.svg
+```
+
+<table>
+  <tr>
+    <td width="70%" valign="top"><b>Token list with the example theme</b><br><img src="docs/images/admin-branding.png" alt="Admin UI with corporate logo and colors"></td>
+    <td width="30%" valign="top"><b>Login</b><br><img src="docs/images/admin-branding-login.png" alt="Admin UI login with corporate logo"></td>
   </tr>
 </table>
 

@@ -18,6 +18,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
+- Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
 
 **Security & transport**
@@ -102,6 +103,8 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
+| `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding)) |
+| `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
@@ -146,6 +149,11 @@ The performance tools work best with `GRANT pg_monitor TO <user>` and the `pg_st
 Manage tokens and their database connections at `/admin`:
 
 ![Admin UI: token list](https://raw.githubusercontent.com/Tommi2Day/pg-mcp-server/main/docs/images/admin-tokens.png)
+
+Switch it to your corporate design with `ADMIN_LOGO` (logo file or URL) and `ADMIN_THEME_CSS` (overrides the color
+variables) — see [Admin UI branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding):
+
+![Admin UI with corporate logo and colors](https://raw.githubusercontent.com/Tommi2Day/pg-mcp-server/main/docs/images/admin-branding.png)
 
 ## Audit logging
 

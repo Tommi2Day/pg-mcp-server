@@ -46,6 +46,9 @@ services:
       # ── Logging ───────────────────────────────────────────────────────────
       # debug | info | warn | error — SQL text only logged at debug
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # Admin UI branding (logo + colors), files from the /branding mount below
+      ADMIN_THEME_CSS: "${ADMIN_THEME_CSS:-}"
+      ADMIN_LOGO: "${ADMIN_LOGO:-}"
 
       # ── Authentication ────────────────────────────────────────────────────
       # Bearer token for /mcp and /admin/tokens (empty = auth disabled)
@@ -68,6 +71,8 @@ services:
     volumes:
       - mcp-data:/data               # persist token store (tokens.json)
       - mcp-certs:/certs             # persist TLS certs (self-signed cert is generated here on first start)
+      # admin UI theme.css / logo (ADMIN_THEME_CSS, ADMIN_LOGO)
+      - ${BRANDING_DIR:-./examples/admin-theme}:/branding:ro
       # - ./certs:/certs             # alternative: bind-mount your own certs instead of mcp-certs
 
     networks:

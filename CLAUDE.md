@@ -42,11 +42,12 @@ helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
 
 ## Architecture
 
-**Two source files, no build step:**
+**Source files, no build step:**
 
 - **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `log`, `getLogLevel`, `isLogEnabled`, `getClientIp`, `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
-- **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). The result is cached as a `Buffer` in `cachedAdminHtml`.
+- **`branding.js`** — admin UI branding: `loadAdminBranding` (`ADMIN_THEME_CSS`, `ADMIN_LOGO` → data URI or URL), `renderAdminHtml` fills `__SERVER_NAME__` (escaped), `<!--theme-->` and the `<!--logo-->…<!--/logo-->` markers. All colors in `admin.html` are `:root` CSS variables — don't add hard-coded colors; example in `examples/admin-theme/`. Listed in the Dockerfile `COPY`.
+- **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). Rendered once by `renderAdminHtml` (`branding.js`) and cached as a `Buffer` in `cachedAdminHtml`.
 
 ### isMain guard
 
