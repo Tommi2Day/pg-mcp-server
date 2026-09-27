@@ -30,6 +30,7 @@ import {
   readFileEnv, buildPgSsl, getAuthToken,
   checkAuth, checkAdminAuth, handleAdminRequest, migrateTokenStore,
   log, isLogEnabled, getClientIp, getLogLevel,
+  clientConnectionFromHeaders, applyClientConnection, ClientConnectionError,
 } from "./lib.js";
 import { loadAdminBranding, renderAdminHtml } from "./branding.js";
 
@@ -50,8 +51,10 @@ try {
 // which PostgreSQL only accepts at connect time. Pools are created lazily.
 export const poolCache = new Map(); // SHA-256 key → Pool instance
 
-function connectionKey(connection, tokenName) {
-  return createHash("sha256").update(JSON.stringify({ connection: connection ?? null, tokenName })).digest("hex");
+// Client-supplied connections (X-Pg-* headers) get pools of their own, even when the values
+// equal the token's connection, so closing them never affects the token's other sessions.
+function connectionKey(connection, tokenName, client = false) {
+  return createHash("sha256").update(JSON.stringify({ connection: connection ?? null, tokenName, client })).digest("hex");
 }
 
 /** application_name for the server's database sessions: "<MCP_SERVER_NAME>:<token name>".
@@ -66,9 +69,10 @@ function sslFromValue(val) {
   return { rejectUnauthorized: false };
 }
 
-/** Return the pool for a token: its own connection config, or the server's default connection when null. */
-export function getPool(connection, tokenName = "unknown") {
-  const key = connectionKey(connection, tokenName);
+/** Return the pool for a token: its own connection config, or the server's default connection when null.
+ *  Missing fields fall back to PG_* individually; ssl "default" keeps the server's PG_SSL settings. */
+export function getPool(connection, tokenName = "unknown", { client = false } = {}) {
+  const key = connectionKey(connection, tokenName, client);
   if (!poolCache.has(key)) {
     const conn = connection || {};
     const p = new Pool({
@@ -77,7 +81,7 @@ export function getPool(connection, tokenName = "unknown") {
       database: conn.database || process.env.PG_DATABASE || "postgres",
       user:     conn.user     || process.env.PG_USER     || "postgres",
       password: conn.password || process.env.PG_PASSWORD || "",
-      ssl:      connection ? sslFromValue(connection.ssl) : buildPgSsl(),
+      ssl:      !connection || connection.ssl === "default" ? buildPgSsl() : sslFromValue(connection.ssl),
       application_name: applicationName(tokenName),
       connectionTimeoutMillis: 10000,
       max: 5,
@@ -95,6 +99,28 @@ function closePool(connection, tokenName) {
   const key = connectionKey(connection, tokenName);
   const p = poolCache.get(key);
   if (p) { p.end().catch(() => {}); poolCache.delete(key); }
+}
+
+/** Pool key → number of open MCP sessions using that client-supplied connection. */
+export const clientPoolRefs = new Map();
+
+/** Ends a client pool when its last session closes (client credentials must not linger in pools). */
+function releaseClientPool(connection, tokenName) {
+  const key = connectionKey(connection, tokenName, true);
+  const n = (clientPoolRefs.get(key) ?? 1) - 1;
+  if (n > 0) { clientPoolRefs.set(key, n); return; }
+  clientPoolRefs.delete(key);
+  const p = poolCache.get(key);
+  if (p) { p.end().catch(() => {}); poolCache.delete(key); }
+}
+
+/** host:port/database and user of an effective connection (for logs, no password). */
+function describeTarget(connection) {
+  const c = connection || {};
+  const host = c.host || process.env.PG_HOST || "localhost";
+  const port = c.port || process.env.PG_PORT || "5432";
+  const database = c.database || process.env.PG_DATABASE || "postgres";
+  return { target: `${host}:${port}/${database}`, user: c.user || process.env.PG_USER || "postgres" };
 }
 
 // ── Performance tool constants ────────────────────────────────────────────────
@@ -712,6 +738,16 @@ function formatToolParams(args) {
 
 // ── Session store (stateful HTTP sessions) ────────────────────────────────────
 export const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
+/** Client-supplied connection parameters per session (re-checked on every request). */
+const sessionClientConnections = new Map();
+
+/** Logs (AUTH, like other rejected requests) and answers a rejected client-supplied connection
+ *  with a JSON-RPC error, which MCP clients show to the user. */
+function rejectClientConnection(req, res, tokenName, clientIp, err, status) {
+  log("warn", "AUTH", `result="denied" token="${tokenName}" action="${req.method} /mcp" ip="${clientIp}" reason=${JSON.stringify(`client connection: ${err.message}`)}`);
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: err.message }, id: null }));
+}
 
 // ── Request handler (shared by both HTTP and HTTPS) ───────────────────────────
 export async function handleRequest(req, res) {
@@ -770,24 +806,54 @@ async function _handleRequest(req, res) {
     const auth = await checkAuth(req, res);
     if (!auth.ok) return;
 
+    const clientIp = getClientIp(req);
     const sessionId = req.headers["mcp-session-id"];
     if (sessionId && sessions.has(sessionId)) {
-      // Resume existing session
+      // Resume existing session — the admin may have revoked client_connection meanwhile
+      const client = sessionClientConnections.get(sessionId);
+      if (client) {
+        try {
+          applyClientConnection(auth.connection, client, auth.clientConnection);
+        } catch (err) {
+          rejectClientConnection(req, res, auth.name, clientIp, err, 403);
+          return;
+        }
+      }
       await sessions.get(sessionId).handleRequest(req, res);
     } else {
-      // New session — resolve pool for this token
-      const dbPool = getPool(auth.connection, auth.name);
-      const clientIp = getClientIp(req);
+      // New session — resolve pool for this token. X-Pg-* headers of the initialize request
+      // override the token's connection if its client_connection permits it.
+      let connection = auth.connection;
+      let client = null;
+      try {
+        client = clientConnectionFromHeaders(req.headers);
+        if (client) connection = applyClientConnection(auth.connection, client, auth.clientConnection);
+      } catch (err) {
+        rejectClientConnection(req, res, auth.name, clientIp, err, err instanceof ClientConnectionError ? err.status : 400);
+        return;
+      }
+      const dbPool = getPool(connection, auth.name, { client: !!client });
+      let connInfo = "";
+      if (client) {
+        const d = describeTarget(connection);
+        connInfo = ` connection="client" target="${d.target}" user="${d.user}"`;
+      }
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
           sessions.set(id, transport);
+          if (client) {
+            sessionClientConnections.set(id, client);
+            const key = connectionKey(connection, auth.name, true);
+            clientPoolRefs.set(key, (clientPoolRefs.get(key) ?? 0) + 1);
+          }
           const startedAt = Date.now();
-          log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"`);
+          log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"${connInfo}`);
           // Chain instead of overwrite: server.connect() already installed its own onclose
           const prevOnClose = transport.onclose;
           transport.onclose = () => {
             sessions.delete(id);
+            if (sessionClientConnections.delete(id)) releaseClientPool(connection, auth.name);
             const duration = Math.round((Date.now() - startedAt) / 1000);
             log("info", "SESSION", `token="${auth.name}" action="stop" session="${id}" ip="${clientIp}" duration=${duration}s`);
             prevOnClose?.();

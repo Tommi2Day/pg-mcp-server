@@ -70,13 +70,22 @@ When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-
 - **`AUTH_TOKEN`** env var — admin token; accepted at `/mcp` and `/admin/tokens`
 - **File tokens** — accepted at `/mcp` only; looked up by SHA-256 hash in the token store
 - `AUTH_TOKEN` empty → auth disabled; all requests (including admin API) are allowed without a token
-- `checkAuth(req, res)` returns `{ ok, name, connection }` — mocks must return this shape
+- `checkAuth(req, res)` returns `{ ok, name, connection, clientConnection }` — mocks must return this shape
 - `checkAdminAuth(req, res)` returns `true` when `AUTH_TOKEN` is not set (mirrors `checkAuth` behaviour)
 - All token comparisons use `timingSafeEqual()` (double-SHA-256 + `crypto.timingSafeEqual`) to prevent timing attacks
 
 ### Per-token connection routing
 
 `checkAuth` returns the token's `connection` object (or `null`). `handleRequest` passes it with the token name to `getPool(connection, tokenName)` in `index.js`, which returns a cached `pg.Pool` — for the token's connection config, or the server's default connection (`PG_*` env) when `connection` is null. Pools are cached in `poolCache` keyed by a SHA-256 of `{ connection, tokenName }`: one pool per token, because `application_name` (`applicationName()` → `<MCP_SERVER_NAME>:<token>`, 63 printable ASCII chars) can only be set at connect time. `onDelete` closes the deleted token's pool. There is no module-level default pool; stdio mode uses `getPool(null, "stdio")`.
+
+### Client-supplied connections
+
+Token field `client_connection` (`none`|`credentials`|`full`; admin/anonymous: `PG_CLIENT_CONNECTION`) permits
+`X-Pg-*` headers on the MCP `initialize` request (`clientConnectionFromHeaders` / `applyClientConnection` in
+`lib.js`). `getPool` fills missing fields from `PG_*` individually, so any client host/port/database/ssl requires
+client credentials; without a token connection `ssl: "default"` keeps `buildPgSsl()`. Client pools use a separate
+cache key (`client: true`), are ref-counted in `clientPoolRefs` and ended with the last session; the permission is
+re-checked per request (`sessionClientConnections`).
 
 ### Performance tools
 

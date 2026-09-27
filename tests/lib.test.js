@@ -18,6 +18,10 @@ import {
   getLogLevel,
   isLogEnabled,
   getClientIp,
+  clientConnectionFromHeaders,
+  clientHeaderName,
+  applyClientConnection,
+  parseClientConnectionMode,
 } from "../lib.js";
 
 // Clear cache and any unconsumed mockReturnValueOnce queue before every test.
@@ -227,7 +231,7 @@ describe("checkAuth", () => {
   it("returns { ok: true, name: 'anonymous', connection: null } when AUTH_TOKEN is not set", async () => {
     const req = makeReq("POST", "/mcp");
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "anonymous", connection: null });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "anonymous", connection: null, clientConnection: "none" });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
@@ -244,7 +248,7 @@ describe("checkAuth", () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "admin", connection: null });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "admin", connection: null, clientConnection: "none" });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
@@ -259,7 +263,7 @@ describe("checkAuth", () => {
     mockReadFile.mockReturnValueOnce(JSON.stringify(store));
     const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "claude-desktop", connection: null });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "claude-desktop", connection: null, clientConnection: "none" });
     expect(mockWriteFile).toHaveBeenCalled(); // last_used_at updated
   });
 
@@ -275,7 +279,29 @@ describe("checkAuth", () => {
     mockReadFile.mockReturnValueOnce(JSON.stringify(store));
     const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "mytoken", connection });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "mytoken", connection, clientConnection: "none" });
+  });
+
+  it("returns the client_connection permission of file tokens and PG_CLIENT_CONNECTION for the admin token", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    const store = {
+      tokens: [{ id: 1, name: "t", token_hash: hashToken("tok"), active: true, last_used_at: null,
+                 connection: null, client_connection: "full" }],
+      next_id: 2,
+    };
+    mockReadFile.mockReturnValueOnce(JSON.stringify(store));
+    const r = await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer tok" } }), makeRes());
+    expect(r).toMatchObject({ ok: true, clientConnection: "full" });
+    process.env.PG_CLIENT_CONNECTION = "Credentials";
+    try {
+      const admin = makeReq("POST", "/mcp", { headers: { authorization: "Bearer admin-secret" } });
+      expect(await checkAuth(admin, makeRes())).toMatchObject({ name: "admin", clientConnection: "credentials" });
+      process.env.PG_CLIENT_CONNECTION = "bogus";
+      const admin2 = makeReq("POST", "/mcp", { headers: { authorization: "Bearer admin-secret" } });
+      expect(await checkAuth(admin2, makeRes())).toMatchObject({ clientConnection: "none" });
+    } finally {
+      delete process.env.PG_CLIENT_CONNECTION;
+    }
   });
 
   it("returns { ok: false } for a token not found in the file store", async () => {
@@ -516,5 +542,74 @@ describe("logging", () => {
     process.env.AUTH_TOKEN = "secret";
     await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } }), makeRes());
     expect(errSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── Client-supplied connections ───────────────────────────────────────────────
+describe("clientConnectionFromHeaders", () => {
+  it("returns null without X-Pg-* headers", () => {
+    expect(clientConnectionFromHeaders({ authorization: "Bearer x", "x-other": "1" })).toBeNull();
+    expect(clientConnectionFromHeaders({ "x-pg-user": "  " })).toBeNull();
+  });
+  it("maps headers to connection fields", () => {
+    expect(clientConnectionFromHeaders({
+      "x-pg-user": "jdoe", "x-pg-password": "pw", "x-pg-host": "db2", "x-pg-port": "5433",
+      "x-pg-database": "sales", "x-pg-ssl": "TRUE",
+    })).toEqual({ user: "jdoe", password: "pw", host: "db2", port: "5433", database: "sales", ssl: "true" });
+  });
+  it("rejects unknown headers and invalid values with 400", () => {
+    expect(() => clientConnectionFromHeaders({ "x-pg-ssl-ca-file": "/etc/ca" }))
+      .toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining("Unknown header X-Pg-Ssl-Ca-File") }));
+    expect(() => clientConnectionFromHeaders({ "x-pg-port": "abc" })).toThrow(/port/);
+    expect(() => clientConnectionFromHeaders({ "x-pg-ssl": "verify" })).toThrow(/ssl/);
+  });
+  it("clientHeaderName", () => {
+    expect(clientHeaderName("database")).toBe("X-Pg-Database");
+  });
+});
+
+describe("applyClientConnection", () => {
+  const token = { host: "db1", port: 5432, database: "app", user: "app", password: "pw", ssl: "true" };
+
+  it("returns the token connection without client parameters", () => {
+    expect(applyClientConnection(token, {}, "none")).toBe(token);
+    expect(applyClientConnection(null, null, "full")).toBeNull();
+  });
+
+  it("rejects everything when the token does not allow it", () => {
+    expect(() => applyClientConnection(token, { user: "u", password: "p" }, "none"))
+      .toThrow(expect.objectContaining({ status: 403 }));
+  });
+
+  it("credentials mode replaces only user and password", () => {
+    expect(applyClientConnection(token, { user: "jdoe", password: "x" }, "credentials"))
+      .toEqual({ ...token, user: "jdoe", password: "x" });
+    expect(() => applyClientConnection(token, { host: "db2", user: "u", password: "p" }, "credentials"))
+      .toThrow(/Not allowed.*host/);
+  });
+
+  it("keeps the server's TLS settings when the token uses the default connection", () => {
+    expect(applyClientConnection(null, { user: "jdoe", password: "x" }, "credentials"))
+      .toEqual({ ssl: "default", user: "jdoe", password: "x" });
+  });
+
+  it("requires user and password together", () => {
+    expect(() => applyClientConnection(null, { user: "jdoe" }, "credentials")).toThrow(/together/);
+    expect(() => applyClientConnection(null, { password: "x" }, "credentials")).toThrow(/together/);
+  });
+
+  it("full mode: a new host drops the token's port/database; target fields need client credentials", () => {
+    expect(applyClientConnection(token, { host: "db2", user: "u", password: "p" }, "full"))
+      .toEqual({ host: "db2", user: "u", password: "p", ssl: "true" });
+    expect(applyClientConnection(token, { database: "other", ssl: "false", user: "u", password: "p" }, "full"))
+      .toEqual({ ...token, database: "other", ssl: "false", user: "u", password: "p" });
+    expect(() => applyClientConnection(token, { host: "evil" }, "full")).toThrow(/requires user and password/);
+    expect(() => applyClientConnection(token, { ssl: "false" }, "full")).toThrow(/requires user and password/);
+  });
+
+  it("parseClientConnectionMode", () => {
+    expect(parseClientConnectionMode(undefined)).toBe("none");
+    expect(parseClientConnectionMode(" FULL ")).toBe("full");
+    expect(parseClientConnectionMode("all")).toBeNull();
   });
 });

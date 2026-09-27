@@ -110,6 +110,8 @@ spec:
                   key: {{ .Values.postgresql.existingSecretKey | default "password" }}
             - name: PG_SSL
               value: {{ .Values.postgresql.ssl | quote }}
+            - name: PG_CLIENT_CONNECTION
+              value: {{ .Values.postgresql.clientConnection | default "none" | quote }}
             {{- if .Values.tls.pgCaSecret }}
             - name: PG_SSL_CA_FILE
               value: /certs-pg-ca/ca.crt

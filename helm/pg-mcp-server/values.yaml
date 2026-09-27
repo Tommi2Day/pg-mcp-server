@@ -22,6 +22,11 @@ postgresql:
   # ssl: verify  → TLS + verify server cert (requires tls.pgCaSecret)
   ssl: "false"
 
+  # Connection parameters clients of the admin token (auth.token) may send as X-Pg-*
+  # headers: none | credentials (user/password) | full (also host/port/database/ssl).
+  # File tokens have their own client_connection setting.
+  clientConnection: none
+
   # existingSecret: "my-pg-secret"   # Secret key must be "password"
   # existingSecretKey: "password"
 

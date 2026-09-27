@@ -95,6 +95,9 @@
               }
             ],
             "description": "Custom PostgreSQL connection for this token, or null to use the server default."
+          },
+          "client_connection": {
+            "$ref": "#/components/schemas/ClientConnectionMode"
           }
         }
       },
@@ -105,6 +108,16 @@
             "type": "string"
           }
         }
+      },
+      "ClientConnectionMode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "credentials",
+          "full"
+        ],
+        "default": "none",
+        "description": "What MCP clients of this token may set themselves via X-Pg-* headers on the initialize request: none – nothing (token/server connection only); credentials – X-Pg-User and X-Pg-Password; full – additionally X-Pg-Host, X-Pg-Port, X-Pg-Database and X-Pg-Ssl. Host, port, database or ssl from the client always require client credentials."
       }
     }
   },
@@ -147,7 +160,7 @@
     "/mcp": {
       "post": {
         "summary": "MCP Streamable-HTTP endpoint",
-        "description": "MCP protocol transport. Requires a Bearer token (admin or file token). When the token has a custom connection configured, that PostgreSQL database is used for this session; otherwise the server default is used. Multi-step protocol: send `initialize` first, then `notifications/initialized`, then tool calls. Include the `mcp-session-id` header returned from `initialize` in subsequent requests.",
+        "description": "MCP protocol transport. Requires a Bearer token (admin or file token). When the token has a custom connection configured, that PostgreSQL database is used for this session; otherwise the server default is used. Multi-step protocol: send `initialize` first, then `notifications/initialized`, then tool calls. Include the `mcp-session-id` header returned from `initialize` in subsequent requests. If the token's client_connection permits it, the client may send its own connection parameters as X-Pg-* headers with the initialize request (see ClientConnectionMode); they apply to the whole session and are re-checked against the token on every request.",
         "operationId": "mcpRequest",
         "security": [
           {
@@ -163,6 +176,60 @@
             "in": "header",
             "required": false,
             "description": "Session ID returned by the server after initialize. Include in all follow-up requests.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-User",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied database user (client_connection credentials or full). Requires X-Pg-Password.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-Password",
+            "in": "header",
+            "required": false,
+            "description": "Password for X-Pg-User. Use HTTPS.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-Host",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied host (client_connection full); the token's port and database are not inherited.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-Port",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied port (full).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-Database",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied database (full).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Pg-Ssl",
+            "in": "header",
+            "required": false,
+            "description": "true or false (full): TLS to PostgreSQL without certificate verification.",
             "schema": {
               "type": "string"
             }
@@ -237,10 +304,13 @@
             "description": "Missing or invalid Bearer token"
           },
           "403": {
-            "description": "Token not authorized for this endpoint"
+            "description": "X-Pg-* headers not permitted by the token's client_connection (JSON-RPC error body)"
           },
           "503": {
             "description": "AUTH_TOKEN not configured on the server"
+          },
+          "400": {
+            "description": "Invalid X-Pg-* header (unknown header, invalid value, user without password, target without credentials); JSON-RPC error body"
           }
         }
       }
@@ -311,6 +381,9 @@
                       }
                     ],
                     "description": "Optional PostgreSQL connection for this token. Omit or set null to use the server default."
+                  },
+                  "client_connection": {
+                    "$ref": "#/components/schemas/ClientConnectionMode"
                   }
                 },
                 "required": [
@@ -383,7 +456,7 @@
       ],
       "patch": {
         "summary": "Update a token",
-        "description": "Updates one or more of name, active, or connection. At least one field must be provided. Set connection to null to clear a custom connection and fall back to the server default.",
+        "description": "Updates one or more of name, active, connection or client_connection. At least one field must be provided. Set connection to null to clear a custom connection and fall back to the server default.",
         "operationId": "updateToken",
         "security": [
           {
@@ -413,6 +486,9 @@
                       }
                     ],
                     "description": "Set a custom connection, update it, or pass null to clear it."
+                  },
+                  "client_connection": {
+                    "$ref": "#/components/schemas/ClientConnectionMode"
                   }
                 }
               },

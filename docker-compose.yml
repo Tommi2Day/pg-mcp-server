@@ -66,6 +66,8 @@ services:
       PG_PASSWORD: "${PG_PASSWORD:-postgres}"
       # PG_SSL: false | true | verify
       PG_SSL: "${PG_SSL:-false}"
+      # X-Pg-* headers of AUTH_TOKEN clients: none | credentials | full
+      PG_CLIENT_CONNECTION: "${PG_CLIENT_CONNECTION:-none}"
       PG_SSL_CA_FILE: "${PGSSLROOTCERT:-/certs/pg-ca.crt}"
 
     volumes:

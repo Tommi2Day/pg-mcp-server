@@ -15,6 +15,7 @@
 #   ./admincli.sh rename-token  <id> <new-name>
 #   ./admincli.sh set-conn     <id> '<json>'   # set per-token DB connection
 #   ./admincli.sh clear-conn   <id>            # reset to default admin connection
+#   ./admincli.sh set-client-conn <id> none|credentials|full   # client may send X-Pg-* headers
 #   ./admincli.sh health                        # server health check
 set -eo pipefail
 
@@ -177,11 +178,11 @@ PYEOF
 
 cmd_add_token() {
   require_token
-  [ -n "${1:-}" ] || die "Usage: ./admincli.sh add-token <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S]"
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh add-token <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S] [--client-connection none|credentials|full]"
   local name="$1"; shift
 
   # Parse optional flags; flags take precedence over env vars
-  local opt_host="" opt_port="" opt_db="" opt_user="" opt_pass="" opt_ssl=""
+  local opt_host="" opt_port="" opt_db="" opt_user="" opt_pass="" opt_ssl="" opt_client=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --host)     opt_host="$2";  shift 2 ;;
@@ -190,6 +191,7 @@ cmd_add_token() {
       --user)     opt_user="$2";  shift 2 ;;
       --password) opt_pass="$2";  shift 2 ;;
       --ssl)      opt_ssl="$2";   shift 2 ;;
+      --client-connection) opt_client="$2"; shift 2 ;;
       *) die "Unknown option: $1" ;;
     esac
   done
@@ -208,8 +210,15 @@ cmd_add_token() {
       "$host" "$port" "$db" "$user" "$pass" "$ssl")
   fi
 
+  local client_json=""
+  case "$opt_client" in
+    none|credentials|full) client_json=",\"client_connection\": \"$opt_client\"" ;;
+    "") ;;
+    *) die "--client-connection must be none, credentials or full" ;;
+  esac
+
   local raw body
-  raw=$(api POST "$API" -d "{\"name\":\"${name}\"${conn_json}}")
+  raw=$(api POST "$API" -d "{\"name\":\"${name}\"${conn_json}${client_json}}")
   body=$(check_response "$raw")
 
   local token
@@ -229,6 +238,10 @@ cmd_add_token() {
   echo ""
   if [ -n "$host" ]; then
     echo "   Connection: ${host}:${port}/${db} (user: ${user}, ssl: ${ssl})"
+    echo ""
+  fi
+  if [ -n "$opt_client" ] && [ "$opt_client" != "none" ]; then
+    echo "   Client-supplied connection: ${opt_client} (X-Pg-* headers)"
     echo ""
   fi
 }
@@ -302,6 +315,21 @@ cmd_clear_conn() {
   echo "✅ Token ${id} connection cleared (uses default admin connection)."
 }
 
+cmd_set_client_conn() {
+  require_token
+  case "${2:-}" in
+    none|credentials|full) ;;
+    *) die "Usage: ./admincli.sh set-client-conn <id> none|credentials|full" ;;
+  esac
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh set-client-conn <id> none|credentials|full"
+  local id="$1" mode="$2"
+
+  local raw body
+  raw=$(api PATCH "${API}/${id}" -d "{\"client_connection\":\"${mode}\"}")
+  body=$(check_response "$raw")
+  echo "✅ Token ${id}: client-supplied connection = ${mode}."
+}
+
 cmd_help() {
   cat <<EOF
 
@@ -324,6 +352,9 @@ pg-mcp-server admin CLI
                [--user U]       the server's default admin connection)
                [--password P]
                [--ssl S]
+               [--client-connection none|credentials|full]
+                                client may send its own user/password (credentials) or
+                                also host/port/database/ssl (full) as X-Pg-* headers
     delete-token <id>            Permanently delete a token
     enable-token <id>            Re-enable a token
     disable-token <id>           Temporarily disable a token
@@ -331,6 +362,8 @@ pg-mcp-server admin CLI
     set-conn     <id> '<json>'   Set a custom DB connection for a token
                                  JSON: {"host":"h","port":5432,"database":"d","user":"u","password":"p","ssl":"false"}
     clear-conn   <id>            Clear per-token connection (falls back to admin DB)
+    set-client-conn <id> none|credentials|full
+                                 What the token's clients may set via X-Pg-* headers
 
   Examples:
     export AUTH_TOKEN=<admin-token>
@@ -353,6 +386,10 @@ pg-mcp-server admin CLI
     # Reset to default admin connection
     ./admincli.sh clear-conn 2
 
+    # Clients log in with their own database account (X-Pg-User / X-Pg-Password)
+    ./admincli.sh add-token "analysts" --client-connection credentials
+    ./admincli.sh set-client-conn 2 full
+
 EOF
 }
 
@@ -367,6 +404,7 @@ case "${1:-help}" in
   rename-token)  cmd_rename_token  "${2:-}" "${3:-}" ;;
   set-conn)      cmd_set_conn      "${2:-}" "${3:-}" ;;
   clear-conn)    cmd_clear_conn    "${2:-}" ;;
+  set-client-conn) cmd_set_client_conn "${2:-}" "${3:-}" ;;
   health)        cmd_health ;;
   help|--help|-h) cmd_help ;;
   *) die "Unknown command: ${1}\nHelp: ./admincli.sh help" ;;

@@ -17,6 +17,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
+- **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](https://github.com/Tommi2Day/pg-mcp-server#client-supplied-connections))
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
@@ -119,6 +120,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 | `PG_USER` | `postgres` | Default username |
 | `PG_PASSWORD` | – | Default password |
 | `PG_SSL` | `false` | Default SSL mode: `false` / `true` / `verify` |
+| `PG_CLIENT_CONNECTION` | `none` | `none` \| `credentials` \| `full`: connection parameters clients of the `AUTH_TOKEN` may send as `X-Pg-*` headers ([details](https://github.com/Tommi2Day/pg-mcp-server#client-supplied-connections)) |
 | `PG_SSL_CA_FILE` | – | CA for PostgreSQL certificate (when `PG_SSL=verify`) |
 | `PG_SSL_CERT_FILE` | – | Client certificate for PostgreSQL mTLS |
 | `PG_SSL_KEY_FILE` | – | Client key for PostgreSQL mTLS |

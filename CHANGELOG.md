@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Client-supplied connections: a token's `client_connection` (`none` default, `credentials`, `full`) lets its MCP
+  clients send their own database user/password — and with `full` host, port, database and ssl — as `X-Pg-*`
+  headers on the `initialize` request. Client host/port/database/ssl require client credentials; tokens without an
+  own connection keep the server's TLS settings; the permission is re-checked on every request; such sessions get
+  their own pool, closed with the last session. `PG_CLIENT_CONNECTION` for the admin token; admin UI, REST API
+  (`openapi.json`), `admincli.sh` (`--client-connection`, `set-client-conn`), Helm `postgresql.clientConnection`
 - Admin UI branding: `ADMIN_LOGO` (logo file or URL) replaces the icon, `ADMIN_THEME_CSS` loads a stylesheet that
   overrides the color/font variables; all colors of `admin.html` are now CSS variables. Example theme in
   `examples/admin-theme/`, screenshots in the README; Helm values `adminUi.brandingConfigMap` / `themeCss` / `logo`

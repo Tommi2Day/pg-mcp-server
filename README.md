@@ -20,6 +20,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
+- **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](#client-supplied-connections))
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
@@ -92,6 +93,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `PG_USER` | `postgres` | Default username |
 | `PG_PASSWORD` | – | Default password |
 | `PG_SSL` | `false` | Default SSL mode: `false` / `true` / `verify` |
+| `PG_CLIENT_CONNECTION` | `none` | `none` \| `credentials` \| `full`: connection parameters clients of the `AUTH_TOKEN` (or anonymous) may send as `X-Pg-*` headers ([details](#client-supplied-connections)) |
 | `PG_SSL_CA_FILE` | – | CA for PostgreSQL certificate (when `PG_SSL=verify`) |
 | `PG_SSL_CERT_FILE` | – | Client certificate for PostgreSQL mTLS |
 | `PG_SSL_KEY_FILE` | – | Client key for PostgreSQL mTLS |
@@ -642,6 +644,94 @@ Each file token can optionally have its own PostgreSQL connection. When a token 
 
 No `AUTH_TOKEN` set → auth is completely disabled (local/dev only). The admin UI still works but does not require a token.
 
+### Client-supplied connections
+
+By default a client always uses the connection of its token (or the server default). The admin can allow the
+clients of a token to send **their own connection parameters** — e.g. so that every user logs in with a personal
+database account instead of a shared technical user. The permission is the token field `client_connection`
+(admin UI: *Client-supplied connection*, `admincli.sh add-token … --client-connection` / `set-client-conn`):
+
+| `client_connection` | Client may send | Typical use |
+|---------------------|-----------------|-------------|
+| `none` (default) | nothing — `X-Pg-*` headers are rejected with HTTP 403 | fixed connection |
+| `credentials` | `user` + `password`; host/port/database stay the token's or server's | personal DB accounts on one database |
+| `full` | additionally `host`, `port`, `database`, `ssl` | one token for many databases (the server can then reach any host the client names) |
+
+For the `AUTH_TOKEN` admin token (and anonymous access when auth is disabled) `PG_CLIENT_CONNECTION` sets the
+same permission (default `none`).
+
+#### Call format
+
+The parameters are sent as **HTTP headers on the MCP `initialize` request** — the request that opens the MCP
+session (no `mcp-session-id` yet). They apply to the whole session; headers on later requests are ignored:
+
+| Header | Field | Mode |
+|--------|-------|------|
+| `X-Pg-User`, `X-Pg-Password` | `user`, `password` — always both | `credentials`, `full` |
+| `X-Pg-Host` | host (the token's port and database are not inherited; missing ones come from `PG_PORT` / `PG_DATABASE`) | `full` |
+| `X-Pg-Port`, `X-Pg-Database` | port, database | `full` |
+| `X-Pg-Ssl` | `true` (TLS without certificate check) or `false` | `full` |
+
+```http
+POST /mcp HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+X-Pg-User: jdoe
+X-Pg-Password: s3cret
+X-Pg-Database: sales
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},
+ "clientInfo":{"name":"my-client","version":"1.0"}}}
+```
+
+MCP clients send configured headers with every request, so a static header entry is all that is needed:
+
+```jsonc
+// .mcp.json (Claude Code) / any client with Streamable HTTP + headers
+{
+  "mcpServers": {
+    "pg-sales": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "X-Pg-User": "jdoe",
+        "X-Pg-Password": "${PGPASSWORD}"
+      }
+    }
+  }
+}
+```
+
+```bash
+# Claude Code CLI
+claude mcp add --transport http pg-sales https://mcp.example.com/mcp \
+  --header "Authorization: Bearer <token>" --header "X-Pg-User: jdoe" --header "X-Pg-Password: s3cret"
+
+# Claude Desktop and other stdio-only clients via mcp-remote
+npx mcp-remote https://mcp.example.com/mcp --header "Authorization: Bearer <token>" \
+  --header "X-Pg-User: jdoe" --header "X-Pg-Password: s3cret"
+```
+
+Rules and safeguards:
+
+- Client parameters override the token's connection: `user`/`password` replace the token's credentials; a client
+  `host` replaces the token's host, port and database.
+- Any client `host`, `port`, `database` or `ssl` **requires client credentials** — the password of the token or
+  server default is never sent to a host chosen by the client, and TLS cannot be switched off for it.
+- Tokens without an own connection keep the server's TLS settings (`PG_SSL`, CA and client certificates) for client
+  credentials; server-side certificate files cannot be set by clients.
+- Rejected requests get HTTP 403 (not permitted) or 400 (invalid, e.g. `user` without `password`) with a JSON-RPC
+  error message, and are logged as `[AUTH] result="denied" … reason="client connection: …"`. A wrong database
+  password shows up as the error of the first tool call.
+- The permission is re-checked on every request: switching a token back to `none` ends the use of client
+  parameters in its open sessions immediately.
+- Sessions with client parameters get their own connection pool (`application_name` stays
+  `<MCP_SERVER_NAME>:<token>`), which is closed when the last such session ends. The session start log shows
+  `connection="client" target="host:port/database" user="…"` (never the password).
+- Passwords travel in HTTP headers — use HTTPS (`TLS_ENABLED=true` or a TLS-terminating proxy).
+
 ### Admin UI
 
 Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage tokens without using the command line or curl.
@@ -940,7 +1030,9 @@ The token store is a plain JSON file. The server reads and writes it automatical
 }
 ```
 
-`connection: null` means the token uses the server's default PostgreSQL connection. The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored. When `STORE_ENCRYPTION_KEY` is set, `connection.password` is stored as `enc:v1:<iv>:<tag>:<ciphertext>` (AES-256-GCM); otherwise it is stored in plaintext.
+`connection: null` means the token uses the server's default PostgreSQL connection. An optional
+`"client_connection": "credentials"` or `"full"` allows its clients to send their own connection parameters
+([client-supplied connections](#client-supplied-connections)). The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored. When `STORE_ENCRYPTION_KEY` is set, `connection.password` is stored as `enc:v1:<iv>:<tag>:<ciphertext>` (AES-256-GCM); otherwise it is stored in plaintext.
 
 ## Automated Updates
 

@@ -41,18 +41,24 @@ vi.mock("@modelcontextprotocol/sdk/types.js", () => ({
   CallToolRequestSchema: "CALL_TOOL",
 }));
 
-vi.mock("../lib.js", () => ({
-  readFileEnv: vi.fn(),
-  buildPgSsl: vi.fn(() => false),
-  getAuthToken: vi.fn(() => ""),
-  checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin", connection: null }),
-  checkAdminAuth: vi.fn(() => true),
-  handleAdminRequest: vi.fn().mockResolvedValue(undefined),
-  log: vi.fn(),
-  isLogEnabled: vi.fn(() => false),
-  getLogLevel: vi.fn(() => "info"),
-  getClientIp: vi.fn(() => "10.0.0.1"),
-}));
+vi.mock("../lib.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    clientConnectionFromHeaders: actual.clientConnectionFromHeaders,
+    applyClientConnection: actual.applyClientConnection,
+    ClientConnectionError: actual.ClientConnectionError,
+    readFileEnv: vi.fn(),
+    buildPgSsl: vi.fn(() => false),
+    getAuthToken: vi.fn(() => ""),
+    checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin", connection: null, clientConnection: "none" }),
+    checkAdminAuth: vi.fn(() => true),
+    handleAdminRequest: vi.fn().mockResolvedValue(undefined),
+    log: vi.fn(),
+    isLogEnabled: vi.fn(() => false),
+    getLogLevel: vi.fn(() => "info"),
+    getClientIp: vi.fn(() => "10.0.0.1"),
+  };
+});
 
 import { handleRequest, createMcpServer, getPool, applicationName, poolCache, sessions } from "../index.js";
 import { checkAuth, handleAdminRequest, log, isLogEnabled } from "../lib.js";
@@ -61,7 +67,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 // ── handleRequest ─────────────────────────────────────────────────────────────
 describe("handleRequest", () => {
   afterEach(() => {
-    vi.mocked(checkAuth).mockResolvedValue({ ok: true, name: "admin", connection: null });
+    vi.mocked(checkAuth).mockResolvedValue({ ok: true, name: "admin", connection: null, clientConnection: "none" });
     vi.mocked(handleAdminRequest).mockResolvedValue(undefined);
     mockTransport.handleRequest.mockClear();
     delete process.env.TLS_ENABLED;
@@ -159,6 +165,70 @@ describe("handleRequest", () => {
     expect(prevOnClose).toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith("info", "SESSION", expect.stringMatching(/action="stop" session="sess-1" .*duration=\d+s/));
     delete mockTransport.onclose;
+  });
+
+  describe("client-supplied connection (X-Pg-* headers)", () => {
+    const clientHeaders = { "x-pg-user": "jdoe", "x-pg-password": "secret" };
+    /** Simulates the SDK: initialize → session id. */
+    function initSession(id) {
+      const opts = vi.mocked(StreamableHTTPServerTransport).mock.calls.at(-1)[0];
+      opts.onsessioninitialized(id);
+    }
+
+    it("rejects client parameters when the token does not allow them (403)", async () => {
+      const res = makeRes();
+      await handleRequest(makeReq("POST", "/mcp", { headers: clientHeaders }), res);
+      expect(res.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+      expect(JSON.parse(res.end.mock.calls[0][0]).error.message).toMatch(/does not allow/);
+      expect(mockTransport.handleRequest).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith("warn", "AUTH", expect.stringContaining('reason="client connection: This token does not allow'));
+    });
+
+    it("rejects invalid headers (400)", async () => {
+      vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "t", connection: null, clientConnection: "full" });
+      const res = makeRes();
+      await handleRequest(makeReq("POST", "/mcp", { headers: { "x-pg-host": "evil" } }), res);
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    });
+
+    it("uses the client credentials with the server's TLS settings, re-checks the permission and ends the pool", async () => {
+      const { default: pg } = await import("pg");
+      vi.mocked(checkAuth).mockResolvedValue({ ok: true, name: "personal", connection: null, clientConnection: "credentials" });
+      vi.mocked(log).mockClear();
+      await handleRequest(makeReq("POST", "/mcp", { headers: clientHeaders }), makeRes());
+      expect(mockTransport.handleRequest).toHaveBeenCalledTimes(1);
+      const pool = vi.mocked(pg.Pool).mock.results.at(-1).value;
+      expect(pg.Pool).toHaveBeenLastCalledWith(expect.objectContaining({
+        user: "jdoe", password: "secret", application_name: "pg-mcp-server:personal",
+      }));
+      const tokenPool = getPool(null, "personal");
+      expect(tokenPool).not.toBe(pool); // client pools are separate from the token's pool
+
+      const prevOnClose = vi.fn();
+      mockTransport.onclose = prevOnClose;
+      initSession("client-1");
+      expect(log).toHaveBeenCalledWith("info", "SESSION", expect.stringContaining('connection="client" target="localhost:5432/postgres" user="jdoe"'));
+
+      vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "personal", connection: null, clientConnection: "none" });
+      const res = makeRes();
+      await handleRequest(makeReq("POST", "/mcp", { headers: { "mcp-session-id": "client-1" } }), res);
+      expect(res.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+
+      pool.end.mockResolvedValue(undefined);
+      mockTransport.onclose();
+      expect(pool.end).toHaveBeenCalled();
+      expect(prevOnClose).toHaveBeenCalled();
+      expect(tokenPool.end).not.toHaveBeenCalled();
+      delete mockTransport.onclose;
+    });
+
+    it("full mode lets the client choose host and database", async () => {
+      const { default: pg } = await import("pg");
+      vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "t",
+        connection: { host: "db1", port: 5432, database: "app", user: "app", password: "pw", ssl: "true" }, clientConnection: "full" });
+      await handleRequest(makeReq("POST", "/mcp", { headers: { ...clientHeaders, "x-pg-host": "db2", "x-pg-database": "sales" } }), makeRes());
+      expect(pg.Pool).toHaveBeenLastCalledWith(expect.objectContaining({ host: "db2", database: "sales", user: "jdoe", password: "secret" }));
+    });
   });
 
   it("unknown route returns 404", async () => {
