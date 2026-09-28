@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run ci:test` also writes `coverage/lcov.info` (coverage limited to `src/`), so SonarQube picks up the test
   coverage instead of reporting 0%
 
+### Fixed
+- Admin UI keyboard accessibility (Sonar S1082): Escape closes dialogs via a key handler on the dialog backdrop (the
+  dialog gets the focus when it has no input field), and the "Use default connection" toggle can be focused and
+  switched with Enter/Space
+
 ## [0.4.0] - 2026-09-27
 
 ### Added
