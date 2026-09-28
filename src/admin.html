@@ -1043,21 +1043,15 @@ async function submitDelete(id) {
 }
 
 // ── Token form builder ────────────────────────────────────────────────────────
-function buildForm(t) {
-  const c        = (t && t.connection) || {};
-  const hasConn  = !!(t && t.connection);
-  const isEdit   = !!t;
-  const db       = state.serverInfo && state.serverInfo.db;
-  const defInfo  = db ? `${db.host || '?'}:${db.port || 5432} / ${db.database || '?'}  ·  user: ${db.user || '?'}` : '';
+/** "host:port / database · user: …" of the server's default connection, '' when unknown. */
+function defaultConnInfo() {
+  const db = state.serverInfo && state.serverInfo.db;
+  return db ? `${db.host || '?'}:${db.port || 5432} / ${db.database || '?'}  ·  user: ${db.user || '?'}` : '';
+}
+
+/** "Active" toggle of the edit form. */
+function activeField(t) {
   return `
-    <div id="modal-alert" class="alert alert-error"></div>
-
-    <div class="field">
-      <label for="f-name">Name</label>
-      <input id="f-name" type="text" value="${x(t ? t.name : '')}" placeholder="e.g. claude-desktop" autocomplete="off">
-    </div>
-
-    ${isEdit ? `
     <div class="field">
       <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
         <label class="toggle" style="margin:0">
@@ -1066,7 +1060,22 @@ function buildForm(t) {
         </label>
         Active
       </label>
-    </div>` : ''}
+    </div>`;
+}
+
+function buildForm(t) {
+  const c        = (t && t.connection) || {};
+  const hasConn  = !!(t && t.connection);
+  const defInfo  = defaultConnInfo();
+  return `
+    <div id="modal-alert" class="alert alert-error"></div>
+
+    <div class="field">
+      <label for="f-name">Name</label>
+      <input id="f-name" type="text" value="${x(t ? t.name : '')}" placeholder="e.g. claude-desktop" autocomplete="off">
+    </div>
+
+    ${t ? activeField(t) : ''}
 
     <div class="field">
       <label for="f-clientconn">Client-supplied connection

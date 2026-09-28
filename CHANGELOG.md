@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Internal refactoring to keep the cognitive complexity of every function below 15 (Sonar rule S3776): each MCP
+  tool is its own function (`TOOL_HANDLERS` in `index.js`), the HTTP router, session start/resume and the admin
+  token API (`handleAdminRequest`) are split into small handlers. No change in behavior, API or log output
+
 ## [0.4.0] - 2026-09-27
 
 ### Added

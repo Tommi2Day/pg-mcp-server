@@ -302,310 +302,10 @@ export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
     const { name, arguments: args } = request.params;
     log("info", "MCP", `token="${tokenName}" action="${name}" ip="${clientIp}"${formatToolParams(args)}`);
     try {
-      switch (name) {
-        case "test_connection": {
-          // noinspection SqlNoDataSourceInspection
-          const res = await dbPool.query(
-            "SELECT version(), current_database(), current_user, now(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
-          ).catch(() => {
-            // noinspection SqlNoDataSourceInspection
-            return dbPool.query("SELECT version(), current_database(), current_user, now()");
-          });
-          const r = res.rows[0];
-          const sslStatus = r.ssl !== undefined ? (r.ssl ? "✅ encrypted" : "⚠️ unencrypted") : "unknown";
-          return { content: [{ type: "text", text:
-            `✅ Connection successful!\n\nDatabase   : ${r.current_database}\nUser       : ${r.current_user}\nTime       : ${r.now}\nDB TLS     : ${sslStatus}\nVersion    : ${r.version}` }] };
-        }
-        case "list_schemas": {
-          // noinspection SqlNoDataSourceInspection
-          const res = await dbPool.query(
-            `SELECT schema_name FROM information_schema.schemata
-             WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast')
-             ORDER BY schema_name`
-          );
-          return { content: [{ type: "text", text: `Schemas:\n${res.rows.map(r => r.schema_name).join("\n")}` }] };
-        }
-        case "list_tables": {
-          const schema = args.schema || "public";
-          // noinspection SqlNoDataSourceInspection
-          const res = await dbPool.query(
-            `SELECT table_name, table_type FROM information_schema.tables
-             WHERE table_schema = $1 ORDER BY table_type, table_name`, [schema]
-          );
-          if (!res.rows.length) return { content: [{ type: "text", text: `No tables in schema "${schema}".` }] };
-          return { content: [{ type: "text", text:
-            `Tables in "${schema}":\n${res.rows.map(r => `  ${r.table_type === "VIEW" ? "VIEW" : "TABLE"}: ${r.table_name}`).join("\n")}` }] };
-        }
-        case "describe_table": {
-          const schema = args.schema || "public";
-          // noinspection SqlNoDataSourceInspection
-          const res = await dbPool.query(
-            `SELECT c.column_name, c.data_type, c.character_maximum_length, c.is_nullable, c.column_default,
-                    CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END AS key
-             FROM information_schema.columns c
-             LEFT JOIN (
-               SELECT ku.column_name FROM information_schema.table_constraints tc
-               JOIN information_schema.key_column_usage ku
-                 ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
-               WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = $1 AND tc.table_schema = $2
-             ) pk ON pk.column_name = c.column_name
-             WHERE c.table_name = $1 AND c.table_schema = $2
-             ORDER BY c.ordinal_position`, [args.table, schema]
-          );
-          if (!res.rows.length) return { content: [{ type: "text", text: `Table "${schema}.${args.table}" not found.` }] };
-          const rows = res.rows.map(r => {
-            const type = r.character_maximum_length ? `${r.data_type}(${r.character_maximum_length})` : r.data_type;
-            return `${r.column_name} | ${type} | ${r.is_nullable} | ${r.column_default ?? ""} | ${r.key}`;
-          });
-          return { content: [{ type: "text", text:
-            `Table: ${schema}.${args.table}\n${"─".repeat(60)}\nColumn | Type | Nullable | Default | Key\n${"─".repeat(60)}\n${rows.join("\n")}` }] };
-        }
-        case "query": {
-          const client = await dbPool.connect();
-          let committed = false;
-          try {
-            await client.query("BEGIN READ ONLY");
-            // Extended protocol: exactly one statement, so the SQL cannot end the read-only transaction.
-            const res = await client.query({ text: args.sql, values: args.params || [], queryMode: "extended" });
-            await client.query("COMMIT");
-            committed = true;
-            if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
-            return { content: [{ type: "text", text: formatTable(res.rows) }] };
-          } finally {
-            if (!committed) await client.query("ROLLBACK").catch(() => {});
-            client.release();
-          }
-        }
-        case "execute": {
-          const client = await dbPool.connect();
-          let committed = false;
-          try {
-            await client.query("BEGIN");
-            const res = await client.query(args.sql, args.params || []);
-            await client.query("COMMIT");
-            committed = true;
-            return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
-          } finally {
-            if (!committed) await client.query("ROLLBACK").catch(() => {});
-            client.release();
-          }
-        }
-        case "explain_query": {
-          const analyze = args.analyze === true;
-          const generic = args.generic_plan === true;
-          if (generic && (analyze || args.params?.length)) throw new Error("generic_plan cannot be combined with analyze or params");
-          const format  = args.format === "json" ? "JSON" : "TEXT";
-          const options = [`ANALYZE ${analyze}`, `BUFFERS ${(args.buffers ?? analyze) === true}`, `VERBOSE ${args.verbose === true}`];
-          if (args.settings === true) options.push("SETTINGS true");
-          if (generic) options.push("GENERIC_PLAN true");
-          options.push(`FORMAT ${format}`);
-          const text = `EXPLAIN (${options.join(", ")}) ${String(args.sql).trim().replace(/;+\s*$/, "")}`;
-          const client = await dbPool.connect();
-          try {
-            await client.query("BEGIN READ ONLY");
-            let res;
-            if (generic) await client.query("SAVEPOINT generic_plan");
-            try {
-              // Extended protocol: exactly one statement, so the SQL cannot end the read-only transaction.
-              res = await client.query({ text, values: args.params || [], queryMode: "extended" });
-            } catch (err) {
-              // GENERIC_PLAN leaves $n unbound, which the extended protocol rejects at bind time. Parsing
-              // already succeeded, so the text is a single statement and may run via the simple protocol.
-              if (!generic || !/^bind message supplies 0 parameters/.test(err.message)) throw err;
-              await client.query("ROLLBACK TO SAVEPOINT generic_plan");
-              res = await client.query(text);
-            }
-            const plan = format === "JSON"
-              ? JSON.stringify(res.rows[0]["QUERY PLAN"], null, 2)
-              : res.rows.map(r => r["QUERY PLAN"]).join("\n");
-            return { content: [{ type: "text", text: plan }] };
-          } finally {
-            // Always roll back: EXPLAIN ANALYZE really executes the statement.
-            await client.query("ROLLBACK").catch(() => {});
-            client.release();
-          }
-        }
-        case "top_queries": {
-          const order = TOP_QUERY_ORDER[args.order_by || "total_time"];
-          if (!order) throw new Error(`Invalid order_by "${args.order_by}". Use one of: ${Object.keys(TOP_QUERY_ORDER).join(", ")}`);
-          // noinspection SqlNoDataSourceInspection
-          const probe = await dbPool.query(perfSql(
-            `SELECT current_setting('server_version_num')::int AS version,
-                    (SELECT quote_ident(n.nspname) FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
-                     WHERE e.extname = 'pg_stat_statements') AS schema`
-          ));
-          const { version: pgVersion, schema: extSchema } = probe.rows[0];
-          if (!extSchema) return { content: [{ type: "text", text:
-            "pg_stat_statements is not installed in this database.\nEnable it with shared_preload_libraries = 'pg_stat_statements' (server restart) and CREATE EXTENSION pg_stat_statements; — see docs/performance.md." }] };
-          // Column names changed in PostgreSQL 13 (total_time → total_exec_time).
-          const total = pgVersion >= 130000 ? "total_exec_time" : "total_time";
-          const mean  = pgVersion >= 130000 ? "mean_exec_time"  : "mean_time";
-          // noinspection SqlNoDataSourceInspection
-          const [res, info] = await Promise.all([
-            dbPool.query(perfSql(
-              `SELECT s.queryid::text AS queryid, pg_get_userbyid(s.userid) AS user_name, s.calls,
-                      round(s.${total}::numeric, 1) AS total_ms, round(s.${mean}::numeric, 2) AS mean_ms,
-                      round((100 * s.${total} / nullif((SELECT sum(${total}) FROM ${extSchema}.pg_stat_statements WHERE dbid = s.dbid), 0))::numeric, 1) AS pct_total,
-                      s.rows, round(100.0 * s.shared_blks_hit / nullif(s.shared_blks_hit + s.shared_blks_read, 0), 1) AS hit_pct,
-                      s.shared_blks_read, s.temp_blks_written,
-                      left(regexp_replace(s.query, '\\s+', ' ', 'g'), 300) AS query
-               FROM ${extSchema}.pg_stat_statements s
-               WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                 AND s.query NOT LIKE '%${PERF_TAG}%'
-                 AND ($2::text IS NULL OR s.query ILIKE '%' || $2::text || '%')
-                 AND ($3::text IS NULL OR pg_get_userbyid(s.userid) = $3::text)
-               ORDER BY ${order} DESC NULLS LAST LIMIT $1`),
-              [clampInt(args.limit, 10, 100), args.sql_text_like || null, args.user || null]),
-            // pg_stat_statements_info exists from PostgreSQL 14 (extension 1.9); older extension versions lack it.
-            pgVersion >= 140000
-              ? dbPool.query(perfSql(
-                `SELECT to_char(stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset, dealloc
-                 FROM ${extSchema}.pg_stat_statements_info`)).catch(() => null)
-              : null,
-          ]);
-          const i = info?.rows?.[0];
-          const since = i?.stats_reset ? ` since ${i.stats_reset}` : "";
-          const evicted = Number(i?.dealloc) > 0
-            ? `\nNote: ${i.dealloc} entries were evicted since the last reset — consider raising pg_stat_statements.max.` : "";
-          if (!res.rows.length) return { content: [{ type: "text", text: `No pg_stat_statements entries match${since}.${evicted}` }] };
-          return { content: [{ type: "text", text:
-            `Top statements by ${args.order_by || "total_time"}${since}:\n${formatTable(res.rows)}${evicted}${privilegeNote(res.rows)}` }] };
-        }
-        case "table_stats": {
-          if (args.table) return { content: [{ type: "text", text: await tableDetail(dbPool, args.schema || "public", args.table) }] };
-          const order = TABLE_STATS_ORDER[args.order_by || "size"];
-          if (!order) throw new Error(`Invalid order_by "${args.order_by}". Use one of: ${Object.keys(TABLE_STATS_ORDER).join(", ")}`);
-          // noinspection SqlNoDataSourceInspection
-          const res = await dbPool.query(perfSql(
-            `SELECT s.schemaname || '.' || s.relname AS table_name,
-                    pg_size_pretty(pg_total_relation_size(s.relid)) AS total_size,
-                    pg_size_pretty(pg_relation_size(s.relid)) AS table_size,
-                    pg_size_pretty(pg_indexes_size(s.relid)) AS index_size,
-                    s.n_live_tup AS live_rows, s.n_dead_tup AS dead_rows,
-                    round(100.0 * s.n_dead_tup / nullif(s.n_live_tup + s.n_dead_tup, 0), 1) AS dead_pct,
-                    s.seq_scan, s.seq_tup_read, s.idx_scan,
-                    to_char(greatest(s.last_vacuum, s.last_autovacuum), 'YYYY-MM-DD HH24:MI') AS last_vacuum,
-                    to_char(greatest(s.last_analyze, s.last_autoanalyze), 'YYYY-MM-DD HH24:MI') AS last_analyze
-             FROM pg_stat_user_tables s
-             WHERE ($1::text IS NULL OR s.schemaname = $1::text)
-             ORDER BY ${order} DESC NULLS LAST LIMIT $2`), [args.schema || null, clampInt(args.limit, 20, 200)]
-          );
-          if (!res.rows.length) return { content: [{ type: "text", text: args.schema ? `No tables in schema "${args.schema}".` : "No user tables found." }] };
-          return { content: [{ type: "text", text: formatTable(res.rows) }] };
-        }
-        case "index_health": {
-          const params = [args.schema || null];
-          // noinspection SqlNoDataSourceInspection
-          const [unused, duplicate, invalid, reset] = await Promise.all([
-            dbPool.query(perfSql(
-              `SELECT n.nspname || '.' || t.relname AS table_name, ic.relname AS index_name,
-                      pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size, s.idx_scan
-               FROM pg_stat_user_indexes s
-               JOIN pg_index i ON i.indexrelid = s.indexrelid
-               JOIN pg_class ic ON ic.oid = i.indexrelid
-               JOIN pg_class t ON t.oid = i.indrelid
-               JOIN pg_namespace n ON n.oid = t.relnamespace
-               WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary
-                 AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid)
-                 AND ${USER_SCHEMA}
-               ORDER BY pg_relation_size(i.indexrelid) DESC`), params),
-            dbPool.query(perfSql(
-              `SELECT n.nspname || '.' || t.relname AS table_name,
-                      string_agg(ic.relname, ', ' ORDER BY ic.relname) AS indexes,
-                      pg_size_pretty(sum(pg_relation_size(i.indexrelid))::bigint) AS total_size
-               FROM pg_index i
-               JOIN pg_class ic ON ic.oid = i.indexrelid
-               JOIN pg_class t ON t.oid = i.indrelid
-               JOIN pg_namespace n ON n.oid = t.relnamespace
-               WHERE ${USER_SCHEMA}
-               GROUP BY n.nspname, t.relname, i.indrelid, i.indkey::text, i.indclass::text, i.indcollation::text,
-                        coalesce(pg_get_expr(i.indexprs, i.indrelid), ''), coalesce(pg_get_expr(i.indpred, i.indrelid), '')
-               HAVING count(*) > 1
-               ORDER BY sum(pg_relation_size(i.indexrelid)) DESC`), params),
-            dbPool.query(perfSql(
-              `SELECT n.nspname || '.' || t.relname AS table_name, ic.relname AS index_name
-               FROM pg_index i
-               JOIN pg_class ic ON ic.oid = i.indexrelid
-               JOIN pg_class t ON t.oid = i.indrelid
-               JOIN pg_namespace n ON n.oid = t.relnamespace
-               WHERE NOT i.indisvalid AND ${USER_SCHEMA}
-               ORDER BY 1, 2`), params),
-            dbPool.query(perfSql(
-              `SELECT to_char(stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset
-               FROM pg_stat_database WHERE datname = current_database()`)),
-          ]);
-          const since = reset.rows[0]?.stats_reset || "database creation";
-          const section = (title, rows) => `${title}\n${rows.length ? formatTable(rows) : "(none)"}`;
-          return { content: [{ type: "text", text: [
-            section(`Unused indexes (no scans since ${since}; excludes unique and constraint indexes; counts are per server, check replicas too):`, unused.rows),
-            section("Duplicate indexes (same columns, operator classes, expressions and predicate):", duplicate.rows),
-            section("Invalid indexes (e.g. failed CREATE INDEX CONCURRENTLY):", invalid.rows),
-          ].join("\n\n") }] };
-        }
-        case "active_queries": {
-          const limit = clampInt(args.limit, 50, 100);
-          // noinspection SqlNoDataSourceInspection
-          // query_id: to_jsonb() avoids a hard reference to the column, which only exists from PostgreSQL 14.
-          const [res, waits, access] = await Promise.all([
-            dbPool.query(perfSql(
-              `SELECT a.pid, a.usename AS user_name, a.datname AS database, left(a.application_name, 30) AS application, a.state,
-                      date_trunc('second', now() - a.xact_start)::text AS xact_age,
-                      date_trunc('second', now() - a.query_start)::text AS query_age,
-                      coalesce(a.wait_event_type || ':' || a.wait_event, '') AS wait,
-                      array_to_string(pg_blocking_pids(a.pid), ',') AS blocked_by,
-                      to_jsonb(a) ->> 'query_id' AS query_id,
-                      left(regexp_replace(a.query, '\\s+', ' ', 'g'), 300) AS query
-               FROM pg_stat_activity a
-               WHERE a.backend_type = 'client backend' AND a.state IS NOT NULL AND a.state <> 'idle'
-                 AND a.pid <> pg_backend_pid()
-                 AND coalesce(greatest(now() - a.xact_start, now() - a.query_start), interval '0') >= make_interval(secs => $1)
-                 AND ($2::text IS NULL OR a.usename = $2::text)
-               ORDER BY cardinality(pg_blocking_pids(a.pid)) > 0 DESC, coalesce(a.xact_start, a.query_start)
-               LIMIT $3`), [Math.max(0, Number(args.min_duration_seconds) || 0), args.username || null, limit]),
-            dbPool.query(perfSql(
-              `SELECT coalesce(a.wait_event_type || ':' || a.wait_event, 'CPU (no wait event)') AS wait, count(*) AS sessions
-               FROM pg_stat_activity a
-               WHERE a.backend_type = 'client backend' AND a.state = 'active' AND a.pid <> pg_backend_pid()
-               GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10`)),
-            // Without pg_read_all_stats, other roles' sessions have state = NULL and are filtered out above.
-            dbPool.query(perfSql("SELECT pg_has_role('pg_read_all_stats', 'USAGE') AS all_stats")),
-          ]);
-          const visibility = access.rows[0]?.all_stats ? ""
-            : "\nNote: only sessions of your own role are visible — GRANT pg_read_all_stats (or pg_monitor) TO <user>; see docs/performance.md.";
-          if (!res.rows.length) return { content: [{ type: "text", text: `No active sessions matching the filter.${visibility}` }] };
-          const count = (pred) => res.rows.filter(pred).length;
-          const summary = `Sessions: ${res.rows.length}${res.rows.length === limit ? " (limit reached)" : ""} — `
-            + `${count(r => r.state === "active")} active, ${count(r => r.state?.startsWith("idle in transaction"))} idle in transaction, `
-            + `${count(r => r.blocked_by)} blocked`;
-          const waitText = waits.rows.length ? formatTable(waits.rows) : "(none)";
-          return { content: [{ type: "text", text:
-            `${summary}\n${formatTable(res.rows)}${visibility}\n\nWait events of active sessions (snapshot):\n${waitText}` }] };
-        }
-        case "performance_overview": {
-          // noinspection SqlNoDataSourceInspection
-          const [stats, settings] = await Promise.all([
-            dbPool.query(perfSql(
-              `SELECT d.datname AS database, pg_size_pretty(pg_database_size(d.datname)) AS size,
-                      round(100.0 * d.blks_hit / nullif(d.blks_hit + d.blks_read, 0), 2) AS cache_hit_pct,
-                      round(100.0 * d.xact_commit / nullif(d.xact_commit + d.xact_rollback, 0), 2) AS commit_pct,
-                      d.numbackends AS db_connections,
-                      (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend') AS server_connections,
-                      current_setting('max_connections') AS max_connections,
-                      d.temp_files, pg_size_pretty(d.temp_bytes) AS temp_size, d.deadlocks, d.conflicts,
-                      to_char(d.stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset
-               FROM pg_stat_database d WHERE d.datname = current_database()`)),
-            dbPool.query(perfSql(
-              `SELECT name, current_setting(name) AS value, source
-               FROM pg_settings WHERE name = ANY($1::text[]) ORDER BY name`), [TUNING_SETTINGS]),
-          ]);
-          const r = stats.rows[0] || {};
-          return { content: [{ type: "text", text:
-            `Database statistics (since ${r.stats_reset || "database creation"}):\n${formatRecord(r)}\n\nTuning settings:\n${formatTable(settings.rows)}` }] };
-        }
-        default:
-          // noinspection ExceptionCaughtLocallyJS
-          throw new Error(`Unknown tool: ${name}`);
-      }
+      const handler = Object.hasOwn(TOOL_HANDLERS, name) ? TOOL_HANDLERS[name] : null;
+      // noinspection ExceptionCaughtLocallyJS
+      if (!handler) throw new Error(`Unknown tool: ${name}`);
+      return await handler(dbPool, args);
     } catch (err) {
       const msg = err?.message || err?.toString() || JSON.stringify(err);
       log("error", "MCP", `token="${tokenName}" action="${name}" ip="${clientIp}" error=${JSON.stringify(msg)}`);
@@ -615,6 +315,333 @@ export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
   });
 
   return server;
+}
+
+/** MCP tool implementations: tool name → async (dbPool, args) → tool result. */
+const TOOL_HANDLERS = {
+  test_connection: toolTestConnection,
+  list_schemas: toolListSchemas,
+  list_tables: toolListTables,
+  describe_table: toolDescribeTable,
+  query: toolQuery,
+  execute: toolExecute,
+  explain_query: toolExplainQuery,
+  top_queries: toolTopQueries,
+  table_stats: toolTableStats,
+  index_health: toolIndexHealth,
+  active_queries: toolActiveQueries,
+  performance_overview: toolPerformanceOverview,
+};
+
+async function toolTestConnection(dbPool) {
+  // noinspection SqlNoDataSourceInspection
+  const res = await dbPool.query(
+    "SELECT version(), current_database(), current_user, now(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
+  ).catch(() => {
+    // noinspection SqlNoDataSourceInspection
+    return dbPool.query("SELECT version(), current_database(), current_user, now()");
+  });
+  const r = res.rows[0];
+  const sslStatus = r.ssl !== undefined ? (r.ssl ? "✅ encrypted" : "⚠️ unencrypted") : "unknown";
+  return { content: [{ type: "text", text:
+    `✅ Connection successful!\n\nDatabase   : ${r.current_database}\nUser       : ${r.current_user}\nTime       : ${r.now}\nDB TLS     : ${sslStatus}\nVersion    : ${r.version}` }] };
+}
+
+async function toolListSchemas(dbPool) {
+  // noinspection SqlNoDataSourceInspection
+  const res = await dbPool.query(
+    `SELECT schema_name FROM information_schema.schemata
+     WHERE schema_name NOT IN ('pg_catalog','information_schema','pg_toast')
+     ORDER BY schema_name`
+  );
+  return { content: [{ type: "text", text: `Schemas:\n${res.rows.map(r => r.schema_name).join("\n")}` }] };
+}
+
+async function toolListTables(dbPool, args) {
+  const schema = args.schema || "public";
+  // noinspection SqlNoDataSourceInspection
+  const res = await dbPool.query(
+    `SELECT table_name, table_type FROM information_schema.tables
+     WHERE table_schema = $1 ORDER BY table_type, table_name`, [schema]
+  );
+  if (!res.rows.length) return { content: [{ type: "text", text: `No tables in schema "${schema}".` }] };
+  return { content: [{ type: "text", text:
+    `Tables in "${schema}":\n${res.rows.map(r => `  ${r.table_type === "VIEW" ? "VIEW" : "TABLE"}: ${r.table_name}`).join("\n")}` }] };
+}
+
+async function toolDescribeTable(dbPool, args) {
+  const schema = args.schema || "public";
+  // noinspection SqlNoDataSourceInspection
+  const res = await dbPool.query(
+    `SELECT c.column_name, c.data_type, c.character_maximum_length, c.is_nullable, c.column_default,
+            CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE '' END AS key
+     FROM information_schema.columns c
+     LEFT JOIN (
+       SELECT ku.column_name FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage ku
+         ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
+       WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = $1 AND tc.table_schema = $2
+     ) pk ON pk.column_name = c.column_name
+     WHERE c.table_name = $1 AND c.table_schema = $2
+     ORDER BY c.ordinal_position`, [args.table, schema]
+  );
+  if (!res.rows.length) return { content: [{ type: "text", text: `Table "${schema}.${args.table}" not found.` }] };
+  const rows = res.rows.map(r => {
+    const type = r.character_maximum_length ? `${r.data_type}(${r.character_maximum_length})` : r.data_type;
+    return `${r.column_name} | ${type} | ${r.is_nullable} | ${r.column_default ?? ""} | ${r.key}`;
+  });
+  return { content: [{ type: "text", text:
+    `Table: ${schema}.${args.table}\n${"─".repeat(60)}\nColumn | Type | Nullable | Default | Key\n${"─".repeat(60)}\n${rows.join("\n")}` }] };
+}
+
+async function toolQuery(dbPool, args) {
+  const client = await dbPool.connect();
+  let committed = false;
+  try {
+    await client.query("BEGIN READ ONLY");
+    // Extended protocol: exactly one statement, so the SQL cannot end the read-only transaction.
+    const res = await client.query({ text: args.sql, values: args.params || [], queryMode: "extended" });
+    await client.query("COMMIT");
+    committed = true;
+    if (!res.rows.length) return { content: [{ type: "text", text: "Query returned 0 rows." }] };
+    return { content: [{ type: "text", text: formatTable(res.rows) }] };
+  } finally {
+    if (!committed) await client.query("ROLLBACK").catch(() => {});
+    client.release();
+  }
+}
+
+async function toolExecute(dbPool, args) {
+  const client = await dbPool.connect();
+  let committed = false;
+  try {
+    await client.query("BEGIN");
+    const res = await client.query(args.sql, args.params || []);
+    await client.query("COMMIT");
+    committed = true;
+    return { content: [{ type: "text", text: `✅ Statement executed.\nRows affected: ${res.rowCount ?? 0}` }] };
+  } finally {
+    if (!committed) await client.query("ROLLBACK").catch(() => {});
+    client.release();
+  }
+}
+
+async function toolExplainQuery(dbPool, args) {
+  const analyze = args.analyze === true;
+  const generic = args.generic_plan === true;
+  if (generic && (analyze || args.params?.length)) throw new Error("generic_plan cannot be combined with analyze or params");
+  const format  = args.format === "json" ? "JSON" : "TEXT";
+  const options = [`ANALYZE ${analyze}`, `BUFFERS ${(args.buffers ?? analyze) === true}`, `VERBOSE ${args.verbose === true}`];
+  if (args.settings === true) options.push("SETTINGS true");
+  if (generic) options.push("GENERIC_PLAN true");
+  options.push(`FORMAT ${format}`);
+  const text = `EXPLAIN (${options.join(", ")}) ${String(args.sql).trim().replace(/;+\s*$/, "")}`;
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    let res;
+    if (generic) await client.query("SAVEPOINT generic_plan");
+    try {
+      // Extended protocol: exactly one statement, so the SQL cannot end the read-only transaction.
+      res = await client.query({ text, values: args.params || [], queryMode: "extended" });
+    } catch (err) {
+      // GENERIC_PLAN leaves $n unbound, which the extended protocol rejects at bind time. Parsing
+      // already succeeded, so the text is a single statement and may run via the simple protocol.
+      if (!generic || !/^bind message supplies 0 parameters/.test(err.message)) throw err;
+      await client.query("ROLLBACK TO SAVEPOINT generic_plan");
+      res = await client.query(text);
+    }
+    const plan = format === "JSON"
+      ? JSON.stringify(res.rows[0]["QUERY PLAN"], null, 2)
+      : res.rows.map(r => r["QUERY PLAN"]).join("\n");
+    return { content: [{ type: "text", text: plan }] };
+  } finally {
+    // Always roll back: EXPLAIN ANALYZE really executes the statement.
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+  }
+}
+
+async function toolTopQueries(dbPool, args) {
+  const order = TOP_QUERY_ORDER[args.order_by || "total_time"];
+  if (!order) throw new Error(`Invalid order_by "${args.order_by}". Use one of: ${Object.keys(TOP_QUERY_ORDER).join(", ")}`);
+  // noinspection SqlNoDataSourceInspection
+  const probe = await dbPool.query(perfSql(
+    `SELECT current_setting('server_version_num')::int AS version,
+            (SELECT quote_ident(n.nspname) FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+             WHERE e.extname = 'pg_stat_statements') AS schema`
+  ));
+  const { version: pgVersion, schema: extSchema } = probe.rows[0];
+  if (!extSchema) return { content: [{ type: "text", text:
+    "pg_stat_statements is not installed in this database.\nEnable it with shared_preload_libraries = 'pg_stat_statements' (server restart) and CREATE EXTENSION pg_stat_statements; — see docs/performance.md." }] };
+  // Column names changed in PostgreSQL 13 (total_time → total_exec_time).
+  const total = pgVersion >= 130000 ? "total_exec_time" : "total_time";
+  const mean  = pgVersion >= 130000 ? "mean_exec_time"  : "mean_time";
+  // noinspection SqlNoDataSourceInspection
+  const [res, info] = await Promise.all([
+    dbPool.query(perfSql(
+      `SELECT s.queryid::text AS queryid, pg_get_userbyid(s.userid) AS user_name, s.calls,
+              round(s.${total}::numeric, 1) AS total_ms, round(s.${mean}::numeric, 2) AS mean_ms,
+              round((100 * s.${total} / nullif((SELECT sum(${total}) FROM ${extSchema}.pg_stat_statements WHERE dbid = s.dbid), 0))::numeric, 1) AS pct_total,
+              s.rows, round(100.0 * s.shared_blks_hit / nullif(s.shared_blks_hit + s.shared_blks_read, 0), 1) AS hit_pct,
+              s.shared_blks_read, s.temp_blks_written,
+              left(regexp_replace(s.query, '\\s+', ' ', 'g'), 300) AS query
+       FROM ${extSchema}.pg_stat_statements s
+       WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+         AND s.query NOT LIKE '%${PERF_TAG}%'
+         AND ($2::text IS NULL OR s.query ILIKE '%' || $2::text || '%')
+         AND ($3::text IS NULL OR pg_get_userbyid(s.userid) = $3::text)
+       ORDER BY ${order} DESC NULLS LAST LIMIT $1`),
+      [clampInt(args.limit, 10, 100), args.sql_text_like || null, args.user || null]),
+    // pg_stat_statements_info exists from PostgreSQL 14 (extension 1.9); older extension versions lack it.
+    pgVersion >= 140000
+      ? dbPool.query(perfSql(
+        `SELECT to_char(stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset, dealloc
+         FROM ${extSchema}.pg_stat_statements_info`)).catch(() => null)
+      : null,
+  ]);
+  const i = info?.rows?.[0];
+  const since = i?.stats_reset ? ` since ${i.stats_reset}` : "";
+  const evicted = Number(i?.dealloc) > 0
+    ? `\nNote: ${i.dealloc} entries were evicted since the last reset — consider raising pg_stat_statements.max.` : "";
+  if (!res.rows.length) return { content: [{ type: "text", text: `No pg_stat_statements entries match${since}.${evicted}` }] };
+  return { content: [{ type: "text", text:
+    `Top statements by ${args.order_by || "total_time"}${since}:\n${formatTable(res.rows)}${evicted}${privilegeNote(res.rows)}` }] };
+}
+
+async function toolTableStats(dbPool, args) {
+  if (args.table) return { content: [{ type: "text", text: await tableDetail(dbPool, args.schema || "public", args.table) }] };
+  const order = TABLE_STATS_ORDER[args.order_by || "size"];
+  if (!order) throw new Error(`Invalid order_by "${args.order_by}". Use one of: ${Object.keys(TABLE_STATS_ORDER).join(", ")}`);
+  // noinspection SqlNoDataSourceInspection
+  const res = await dbPool.query(perfSql(
+    `SELECT s.schemaname || '.' || s.relname AS table_name,
+            pg_size_pretty(pg_total_relation_size(s.relid)) AS total_size,
+            pg_size_pretty(pg_relation_size(s.relid)) AS table_size,
+            pg_size_pretty(pg_indexes_size(s.relid)) AS index_size,
+            s.n_live_tup AS live_rows, s.n_dead_tup AS dead_rows,
+            round(100.0 * s.n_dead_tup / nullif(s.n_live_tup + s.n_dead_tup, 0), 1) AS dead_pct,
+            s.seq_scan, s.seq_tup_read, s.idx_scan,
+            to_char(greatest(s.last_vacuum, s.last_autovacuum), 'YYYY-MM-DD HH24:MI') AS last_vacuum,
+            to_char(greatest(s.last_analyze, s.last_autoanalyze), 'YYYY-MM-DD HH24:MI') AS last_analyze
+     FROM pg_stat_user_tables s
+     WHERE ($1::text IS NULL OR s.schemaname = $1::text)
+     ORDER BY ${order} DESC NULLS LAST LIMIT $2`), [args.schema || null, clampInt(args.limit, 20, 200)]
+  );
+  if (!res.rows.length) return { content: [{ type: "text", text: args.schema ? `No tables in schema "${args.schema}".` : "No user tables found." }] };
+  return { content: [{ type: "text", text: formatTable(res.rows) }] };
+}
+
+async function toolIndexHealth(dbPool, args) {
+  const params = [args.schema || null];
+  // noinspection SqlNoDataSourceInspection
+  const [unused, duplicate, invalid, reset] = await Promise.all([
+    dbPool.query(perfSql(
+      `SELECT n.nspname || '.' || t.relname AS table_name, ic.relname AS index_name,
+              pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size, s.idx_scan
+       FROM pg_stat_user_indexes s
+       JOIN pg_index i ON i.indexrelid = s.indexrelid
+       JOIN pg_class ic ON ic.oid = i.indexrelid
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary
+         AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid)
+         AND ${USER_SCHEMA}
+       ORDER BY pg_relation_size(i.indexrelid) DESC`), params),
+    dbPool.query(perfSql(
+      `SELECT n.nspname || '.' || t.relname AS table_name,
+              string_agg(ic.relname, ', ' ORDER BY ic.relname) AS indexes,
+              pg_size_pretty(sum(pg_relation_size(i.indexrelid))::bigint) AS total_size
+       FROM pg_index i
+       JOIN pg_class ic ON ic.oid = i.indexrelid
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE ${USER_SCHEMA}
+       GROUP BY n.nspname, t.relname, i.indrelid, i.indkey::text, i.indclass::text, i.indcollation::text,
+                coalesce(pg_get_expr(i.indexprs, i.indrelid), ''), coalesce(pg_get_expr(i.indpred, i.indrelid), '')
+       HAVING count(*) > 1
+       ORDER BY sum(pg_relation_size(i.indexrelid)) DESC`), params),
+    dbPool.query(perfSql(
+      `SELECT n.nspname || '.' || t.relname AS table_name, ic.relname AS index_name
+       FROM pg_index i
+       JOIN pg_class ic ON ic.oid = i.indexrelid
+       JOIN pg_class t ON t.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE NOT i.indisvalid AND ${USER_SCHEMA}
+       ORDER BY 1, 2`), params),
+    dbPool.query(perfSql(
+      `SELECT to_char(stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset
+       FROM pg_stat_database WHERE datname = current_database()`)),
+  ]);
+  const since = reset.rows[0]?.stats_reset || "database creation";
+  const section = (title, rows) => `${title}\n${rows.length ? formatTable(rows) : "(none)"}`;
+  return { content: [{ type: "text", text: [
+    section(`Unused indexes (no scans since ${since}; excludes unique and constraint indexes; counts are per server, check replicas too):`, unused.rows),
+    section("Duplicate indexes (same columns, operator classes, expressions and predicate):", duplicate.rows),
+    section("Invalid indexes (e.g. failed CREATE INDEX CONCURRENTLY):", invalid.rows),
+  ].join("\n\n") }] };
+}
+
+async function toolActiveQueries(dbPool, args) {
+  const limit = clampInt(args.limit, 50, 100);
+  // noinspection SqlNoDataSourceInspection
+  // query_id: to_jsonb() avoids a hard reference to the column, which only exists from PostgreSQL 14.
+  const [res, waits, access] = await Promise.all([
+    dbPool.query(perfSql(
+      `SELECT a.pid, a.usename AS user_name, a.datname AS database, left(a.application_name, 30) AS application, a.state,
+              date_trunc('second', now() - a.xact_start)::text AS xact_age,
+              date_trunc('second', now() - a.query_start)::text AS query_age,
+              coalesce(a.wait_event_type || ':' || a.wait_event, '') AS wait,
+              array_to_string(pg_blocking_pids(a.pid), ',') AS blocked_by,
+              to_jsonb(a) ->> 'query_id' AS query_id,
+              left(regexp_replace(a.query, '\\s+', ' ', 'g'), 300) AS query
+       FROM pg_stat_activity a
+       WHERE a.backend_type = 'client backend' AND a.state IS NOT NULL AND a.state <> 'idle'
+         AND a.pid <> pg_backend_pid()
+         AND coalesce(greatest(now() - a.xact_start, now() - a.query_start), interval '0') >= make_interval(secs => $1)
+         AND ($2::text IS NULL OR a.usename = $2::text)
+       ORDER BY cardinality(pg_blocking_pids(a.pid)) > 0 DESC, coalesce(a.xact_start, a.query_start)
+       LIMIT $3`), [Math.max(0, Number(args.min_duration_seconds) || 0), args.username || null, limit]),
+    dbPool.query(perfSql(
+      `SELECT coalesce(a.wait_event_type || ':' || a.wait_event, 'CPU (no wait event)') AS wait, count(*) AS sessions
+       FROM pg_stat_activity a
+       WHERE a.backend_type = 'client backend' AND a.state = 'active' AND a.pid <> pg_backend_pid()
+       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10`)),
+    // Without pg_read_all_stats, other roles' sessions have state = NULL and are filtered out above.
+    dbPool.query(perfSql("SELECT pg_has_role('pg_read_all_stats', 'USAGE') AS all_stats")),
+  ]);
+  const visibility = access.rows[0]?.all_stats ? ""
+    : "\nNote: only sessions of your own role are visible — GRANT pg_read_all_stats (or pg_monitor) TO <user>; see docs/performance.md.";
+  if (!res.rows.length) return { content: [{ type: "text", text: `No active sessions matching the filter.${visibility}` }] };
+  const count = (pred) => res.rows.filter(pred).length;
+  const summary = `Sessions: ${res.rows.length}${res.rows.length === limit ? " (limit reached)" : ""} — `
+    + `${count(r => r.state === "active")} active, ${count(r => r.state?.startsWith("idle in transaction"))} idle in transaction, `
+    + `${count(r => r.blocked_by)} blocked`;
+  const waitText = waits.rows.length ? formatTable(waits.rows) : "(none)";
+  return { content: [{ type: "text", text:
+    `${summary}\n${formatTable(res.rows)}${visibility}\n\nWait events of active sessions (snapshot):\n${waitText}` }] };
+}
+
+async function toolPerformanceOverview(dbPool) {
+  // noinspection SqlNoDataSourceInspection
+  const [stats, settings] = await Promise.all([
+    dbPool.query(perfSql(
+      `SELECT d.datname AS database, pg_size_pretty(pg_database_size(d.datname)) AS size,
+              round(100.0 * d.blks_hit / nullif(d.blks_hit + d.blks_read, 0), 2) AS cache_hit_pct,
+              round(100.0 * d.xact_commit / nullif(d.xact_commit + d.xact_rollback, 0), 2) AS commit_pct,
+              d.numbackends AS db_connections,
+              (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend') AS server_connections,
+              current_setting('max_connections') AS max_connections,
+              d.temp_files, pg_size_pretty(d.temp_bytes) AS temp_size, d.deadlocks, d.conflicts,
+              to_char(d.stats_reset, 'YYYY-MM-DD HH24:MI') AS stats_reset
+       FROM pg_stat_database d WHERE d.datname = current_database()`)),
+    dbPool.query(perfSql(
+      `SELECT name, current_setting(name) AS value, source
+       FROM pg_settings WHERE name = ANY($1::text[]) ORDER BY name`), [TUNING_SETTINGS]),
+  ]);
+  const r = stats.rows[0] || {};
+  return { content: [{ type: "text", text:
+    `Database statistics (since ${r.stats_reset || "database creation"}):\n${formatRecord(r)}\n\nTuning settings:\n${formatTable(settings.rows)}` }] };
 }
 
 /** Text for one result cell. json/jsonb values (e.g. EXPLAIN (FORMAT JSON)) arrive as
@@ -763,109 +790,118 @@ export async function handleRequest(req, res) {
   }
 }
 
-async function _handleRequest(req, res) {
-  if ((req.url === "/admin" || req.url === "/admin/") && req.method === "GET") {
-    if (cachedAdminHtml) {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(cachedAdminHtml);
-    } else {
-      res.writeHead(404);
-      res.end("Admin UI not found");
+function serveAdminHtml(req, res) {
+  if (cachedAdminHtml) {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(cachedAdminHtml);
+  } else {
+    res.writeHead(404);
+    res.end("Admin UI not found");
+  }
+}
+
+function serveHealth(req, res) {
+  const tlsEnabled = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
+}
+
+function serveInfo(req, res) {
+  if (!checkAdminAuth(req, res)) return;
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({
+    name: mcpServerName,
+    version,
+    db: {
+      host:     process.env.PG_HOST     || "localhost",
+      port:     parseInt(process.env.PG_PORT || "5432"),
+      database: process.env.PG_DATABASE || "postgres",
+      user:     process.env.PG_USER     || "postgres",
+      ssl:      process.env.PG_SSL      || "false",
+    },
+  }));
+}
+
+async function handleMcp(req, res) {
+  const auth = await checkAuth(req, res);
+  if (!auth.ok) return;
+  const clientIp = getClientIp(req);
+  const sessionId = req.headers["mcp-session-id"];
+  if (sessionId && sessions.has(sessionId)) await resumeSession(req, res, auth, clientIp, sessionId);
+  else await startSession(req, res, auth, clientIp);
+}
+
+async function resumeSession(req, res, auth, clientIp, sessionId) {
+  // The admin may have revoked client_connection meanwhile
+  const client = sessionClientConnections.get(sessionId);
+  if (client) {
+    try {
+      applyClientConnection(auth.connection, client, auth.clientConnection);
+    } catch (err) {
+      rejectClientConnection(req, res, auth.name, clientIp, err, 403);
+      return;
     }
+  }
+  await sessions.get(sessionId).handleRequest(req, res);
+}
+
+async function startSession(req, res, auth, clientIp) {
+  // Resolve the pool for this token. X-Pg-* headers of the initialize request
+  // override the token's connection if its client_connection permits it.
+  let connection = auth.connection;
+  let client = null;
+  try {
+    client = clientConnectionFromHeaders(req.headers);
+    if (client) connection = applyClientConnection(auth.connection, client, auth.clientConnection);
+  } catch (err) {
+    rejectClientConnection(req, res, auth.name, clientIp, err, err instanceof ClientConnectionError ? err.status : 400);
     return;
   }
-  if (req.url === "/health" && req.method === "GET") {
-    const tlsEnabled = (process.env.TLS_ENABLED || "false").toLowerCase() !== "false";
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
-    return;
+  const dbPool = getPool(connection, auth.name, { client: !!client });
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (id) => trackSession(transport, id, { auth, clientIp, client, connection }),
+  });
+  const server = createMcpServer(dbPool, auth.name, clientIp);
+  await server.connect(transport);
+  await transport.handleRequest(req, res);
+}
+
+/** Registers a new session, logs its start and — on close — its stop, releasing a client pool. */
+function trackSession(transport, id, { auth, clientIp, client, connection }) {
+  sessions.set(id, transport);
+  let connInfo = "";
+  if (client) {
+    sessionClientConnections.set(id, client);
+    const key = connectionKey(connection, auth.name, true);
+    clientPoolRefs.set(key, (clientPoolRefs.get(key) ?? 0) + 1);
+    const d = describeTarget(connection);
+    connInfo = ` connection="client" target="${d.target}" user="${d.user}"`;
   }
-  if (req.url === "/info" && req.method === "GET") {
-    if (!checkAdminAuth(req, res)) return;
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      name: mcpServerName,
-      version,
-      db: {
-        host:     process.env.PG_HOST     || "localhost",
-        port:     parseInt(process.env.PG_PORT || "5432"),
-        database: process.env.PG_DATABASE || "postgres",
-        user:     process.env.PG_USER     || "postgres",
-        ssl:      process.env.PG_SSL      || "false",
-      },
-    }));
-    return;
-  }
+  const startedAt = Date.now();
+  log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"${connInfo}`);
+  // Chain instead of overwrite: server.connect() already installed its own onclose
+  const prevOnClose = transport.onclose;
+  transport.onclose = () => {
+    sessions.delete(id);
+    if (sessionClientConnections.delete(id)) releaseClientPool(connection, auth.name);
+    const duration = Math.round((Date.now() - startedAt) / 1000);
+    log("info", "SESSION", `token="${auth.name}" action="stop" session="${id}" ip="${clientIp}" duration=${duration}s`);
+    prevOnClose?.();
+  };
+}
+
+async function _handleRequest(req, res) {
+  const route = `${req.method} ${req.url}`;
+  if (route === "GET /admin" || route === "GET /admin/") return serveAdminHtml(req, res);
+  if (route === "GET /health") return serveHealth(req, res);
+  if (route === "GET /info") return serveInfo(req, res);
   if (req.url?.startsWith("/admin/tokens")) {
-    await handleAdminRequest(req, res, {
+    return handleAdminRequest(req, res, {
       onDelete: (token) => closePool(token.connection, token.name),
     });
-    return;
   }
-  if (req.url === "/mcp") {
-    const auth = await checkAuth(req, res);
-    if (!auth.ok) return;
-
-    const clientIp = getClientIp(req);
-    const sessionId = req.headers["mcp-session-id"];
-    if (sessionId && sessions.has(sessionId)) {
-      // Resume existing session — the admin may have revoked client_connection meanwhile
-      const client = sessionClientConnections.get(sessionId);
-      if (client) {
-        try {
-          applyClientConnection(auth.connection, client, auth.clientConnection);
-        } catch (err) {
-          rejectClientConnection(req, res, auth.name, clientIp, err, 403);
-          return;
-        }
-      }
-      await sessions.get(sessionId).handleRequest(req, res);
-    } else {
-      // New session — resolve pool for this token. X-Pg-* headers of the initialize request
-      // override the token's connection if its client_connection permits it.
-      let connection = auth.connection;
-      let client = null;
-      try {
-        client = clientConnectionFromHeaders(req.headers);
-        if (client) connection = applyClientConnection(auth.connection, client, auth.clientConnection);
-      } catch (err) {
-        rejectClientConnection(req, res, auth.name, clientIp, err, err instanceof ClientConnectionError ? err.status : 400);
-        return;
-      }
-      const dbPool = getPool(connection, auth.name, { client: !!client });
-      let connInfo = "";
-      if (client) {
-        const d = describeTarget(connection);
-        connInfo = ` connection="client" target="${d.target}" user="${d.user}"`;
-      }
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => {
-          sessions.set(id, transport);
-          if (client) {
-            sessionClientConnections.set(id, client);
-            const key = connectionKey(connection, auth.name, true);
-            clientPoolRefs.set(key, (clientPoolRefs.get(key) ?? 0) + 1);
-          }
-          const startedAt = Date.now();
-          log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"${connInfo}`);
-          // Chain instead of overwrite: server.connect() already installed its own onclose
-          const prevOnClose = transport.onclose;
-          transport.onclose = () => {
-            sessions.delete(id);
-            if (sessionClientConnections.delete(id)) releaseClientPool(connection, auth.name);
-            const duration = Math.round((Date.now() - startedAt) / 1000);
-            log("info", "SESSION", `token="${auth.name}" action="stop" session="${id}" ip="${clientIp}" duration=${duration}s`);
-            prevOnClose?.();
-          };
-        },
-      });
-      const server = createMcpServer(dbPool, auth.name, clientIp);
-      await server.connect(transport);
-      await transport.handleRequest(req, res);
-    }
-    return;
-  }
+  if (req.url === "/mcp") return handleMcp(req, res);
   res.writeHead(404);
   res.end("Not found");
 }

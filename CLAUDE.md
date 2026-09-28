@@ -87,6 +87,10 @@ client credentials; without a token connection `ssl: "default"` keeps `buildPgSs
 cache key (`client: true`), are ref-counted in `clientPoolRefs` and ended with the last session; the permission is
 re-checked per request (`sessionClientConnections`).
 
+### Tool handlers
+
+`CallTool` dispatches via `TOOL_HANDLERS` (tool name → `tool<Name>(dbPool, args)`, module level in `index.js`); a new tool needs an entry there and in `ListTools`. Keep the cognitive complexity of every function below 15 (Sonar S3776, also for the script in `admin.html`) — split into helpers instead of growing `switch`/`if` chains.
+
 ### Performance tools
 
 `explain_query`, `top_queries`, `table_stats`, `index_health`, `active_queries`, `performance_overview` live in `index.js` (listed in `PERF_TOOL_NAMES`); user-facing docs are in `docs/performance.md` — keep it in sync.
