@@ -131,6 +131,8 @@ All structured log lines go through `log(level, category, message)` in `lib.js` 
 
 ### Docker entrypoint
 
+The Dockerfile is multi-stage: a `deps` stage runs `npm ci --omit=dev`, the final stage copies `node_modules` and removes npm/npx/corepack (unused at runtime, they carry CVEs of their own bundled packages) and runs `apk upgrade` for patched Alpine libraries. Don't call `npm` inside the container. Check the image with `trivy image` after changes.
+
 The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node src/index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
 
 ### Helm chart (`helm/pg-mcp-server/`)

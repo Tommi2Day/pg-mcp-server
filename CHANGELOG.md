@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-06
+
+### Security
+- Updated dependencies (`@modelcontextprotocol/sdk` 1.32.2, `pg` 8.23.1, vitest/eslint/globals); `npm audit fix` clears the
+  zod, vite and source-map-js advisories. Production dependencies: 0 known vulnerabilities
+- Docker image runs `apk upgrade` at build time so patched Alpine system libraries (e.g. brotli-libs) are picked up
+- Docker image is multi-stage and no longer ships npm/npx/corepack (unused at runtime, carried CVEs in bundled
+  brace-expansion/undici); Trivy reports 0 vulnerabilities
+
 ### Changed
 - Internal refactoring to keep the cognitive complexity of every function below 15 (Sonar rule S3776): each MCP
   tool is its own function (`TOOL_HANDLERS` in `index.js`), the HTTP router, session start/resume and the admin
