@@ -38,6 +38,7 @@ docker compose down
 # Helm
 helm install pg-mcp ./helm/pg-mcp-server --namespace mcp --create-namespace -f my-values.yaml
 helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
+helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server -n mcp -f my-values.yaml   # published chart
 ```
 
 ## Architecture
@@ -136,6 +137,8 @@ The Dockerfile is multi-stage: a `deps` stage runs `npm ci --omit=dev`, the fina
 The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node src/index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
 
 ### Helm chart (`helm/pg-mcp-server/`)
+
+Published to `oci://ghcr.io/tommi2day/charts/pg-mcp-server` by `.github/workflows/helm-publish.yml` (reusable; called from `release.yml`, or run by hand with a tag as `ref`). The chart version comes from `Chart.yaml`, so it is part of the version sync.
 
 Key values:
 - `auth.token` / `auth.existingSecret` → Secret `<release>-auth`

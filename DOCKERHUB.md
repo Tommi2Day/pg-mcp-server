@@ -35,7 +35,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 
 **Operations**
 - Docker image on Docker Hub, `docker-compose` with test database, persistent volumes for tokens and certs
-- Helm chart: PVC for the token store, existing Secrets, ingress, HPA, TLS-aware health probes
+- Helm chart (`oci://ghcr.io/tommi2day/charts/pg-mcp-server`): PVC for the token store, existing Secrets, ingress, HPA, TLS-aware health probes
 - Only two runtime dependencies (MCP SDK, `pg`), no build step, ~100 unit tests, Dependabot updates
 
 ## Why this server?

@@ -434,13 +434,22 @@ The inspector opens a browser UI where you can list tools, call them individuall
 ### Prerequisites
 
 - `kubectl` configured
-- `helm` v3 installed
+- `helm` v3.8+ installed (OCI registry support)
 - Image accessible in a registry
+
+The chart is published to the GitHub Container Registry with every release:
+
+```bash
+helm show values oci://ghcr.io/tommi2day/charts/pg-mcp-server --version 0.4.1
+```
+
+Omit `--version` for the latest release. The examples below install from the registry; to use a local checkout,
+replace `oci://ghcr.io/tommi2day/charts/pg-mcp-server` with `./helm/pg-mcp-server`.
 
 ### Quick start (HTTP, no TLS)
 
 ```bash
-helm install pg-mcp ./helm/pg-mcp-server \
+helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server \
   --namespace mcp --create-namespace \
   --set image.repository=tommi2day/pg-mcp-server \
   --set postgresql.host=my-db-host \
@@ -465,7 +474,7 @@ kubectl create secret generic my-auth-secret \
 kubectl create secret generic pg-ca-cert \
   --from-file=ca.crt=certs/pg-ca.crt -n mcp
 
-helm install pg-mcp ./helm/pg-mcp-server \
+helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server \
   --namespace mcp --create-namespace \
   --set server.tlsEnabled=true \
   --set tls.existingSecret=pg-mcp-tls \
@@ -538,7 +547,7 @@ autoscaling:
 ### Upgrade / Uninstall
 
 ```bash
-helm upgrade pg-mcp ./helm/pg-mcp-server -n mcp -f my-values.yaml
+helm upgrade pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server -n mcp -f my-values.yaml
 helm uninstall pg-mcp -n mcp
 ```
 

@@ -1,0 +1,47 @@
+name: Helm Chart
+
+# Packages helm/pg-mcp-server and pushes it to oci://ghcr.io/<owner>/charts.
+# Called by release.yml; can also be run by hand to (re-)publish the chart of a tag.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to package the chart from"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (tag or branch) to package the chart from, e.g. 1.2.3"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    name: Package & Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Lint chart
+        run: helm lint helm/pg-mcp-server
+
+      - name: Package chart
+        run: helm package helm/pg-mcp-server --destination dist
+
+      - name: Push to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+          helm push dist/pg-mcp-server-*.tgz "oci://ghcr.io/${owner}/charts"
