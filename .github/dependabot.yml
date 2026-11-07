@@ -16,6 +16,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # Node major stays in sync with node-version in ci.yml/release.yml; bump all of them by hand
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
