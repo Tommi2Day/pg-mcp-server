@@ -6,11 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-07
+
 ### Added
 - Helm chart is published to the GitHub Container Registry with every release:
   `helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server` (workflow `helm-publish.yml`, also runnable by hand)
-
-## [0.4.1] - 2026-11-07
+- Helm chart icon (`docs/images/icon.svg`, the admin UI database symbol)
 
 ### Security
 - Updated dependencies (`@modelcontextprotocol/sdk` 1.32.2, `pg` 8.23.1, vitest/eslint/globals); `npm audit fix` clears the
