@@ -39,6 +39,7 @@ Pairs are separated by a single space. Values are enclosed in double quotes, exc
 |----------|-------|----------------------|---------|
 | `MCP` | info | `token` `action` `ip` [`params`] | Tool call. `action` = tool name. `params` is omitted for tools without arguments; `params.sql` is replaced by `<N chars, LOG_LEVEL=debug to show>` unless `LOG_LEVEL=debug` |
 | `MCP` | error | `token` `action` `ip` `error` | Tool call failed |
+| `MCP` | info | `token` `action` `ip` `params` | Prompt requested (`prompts/get`): `action="get_prompt"`, `params={"name":"<prompt>"}` — argument values are not logged ([skills](skills.md)) |
 | `SESSION` | info | `token` `action` `session` `ip` [`connection` `target` `user`] [`duration`] | `action` = `start` \| `stop`; `duration` only on `stop`; `connection="client"` with `target` (`host:port/database`) and `user` on `start` when the client supplied its own connection parameters (X-Pg-* headers) |
 | `AUTH` | warn | `result` [`token`] `action` `ip` `reason` | Rejected request (HTTP 401). `result` = `denied`; `action` = `<METHOD> <path>`; `reason` = `missing token` \| `invalid admin token` \| `unknown token` \| `token disabled` (only the last one has `token`), or `client connection: <message>` for rejected X-Pg-* headers (HTTP 400/403, with `token`). The presented token is never logged |
 | `ADMIN` | info | `token` `action` `ip` | Admin API call; `token` = `admin` or `anonymous` (auth disabled) |

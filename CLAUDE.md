@@ -43,11 +43,12 @@ helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server -n mcp -f my-va
 
 ## Architecture
 
-**Source files in `src/`, no build step** (tests import `../src/*.js`; the Dockerfile copies `src/` to `/app/src`):
+**Source files in `src/`, no build step** (tests import `../src/*.js`; the Dockerfile copies `src/` to `/app/src` and `skills/` to `/app/skills`):
 
 - **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `log`, `getLogLevel`, `isLogEnabled`, `getClientIp`, `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
 - **`branding.js`** — admin UI branding: `loadAdminBranding` (`ADMIN_THEME_CSS`, `ADMIN_LOGO` → data URI or URL), `renderAdminHtml` fills `__SERVER_NAME__` (escaped), `<!--theme-->` and the `<!--logo-->…<!--/logo-->` markers. All colors in `admin.html` are `:root` CSS variables — don't add hard-coded colors; example in `examples/admin-theme/`.
+- **`prompts.js`** — MCP prompts from `skills/<name>/SKILL.md` (Agent Skills format, single source for prompts and skills): `parseSkill` (frontmatter `name`/`description` + body), `loadPrompts` (loaded once into `PROMPTS` in `index.js`), `buildPromptResult` (body + `## Input` section). Prompt arguments live in `PROMPT_ARGUMENTS`, not in the frontmatter. No MCP SDK imports.
 - **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). Rendered once by `renderAdminHtml` (`branding.js`) and cached as a `Buffer` in `cachedAdminHtml`.
 
 ### isMain guard
@@ -91,6 +92,10 @@ re-checked per request (`sessionClientConnections`).
 ### Tool handlers
 
 `CallTool` dispatches via `TOOL_HANDLERS` (tool name → `tool<Name>(dbPool, args)`, module level in `index.js`); a new tool needs an entry there and in `ListTools`. Keep the cognitive complexity of every function below 15 (Sonar S3776, also for the script in `admin.html`) — split into helpers instead of growing `switch`/`if` chains.
+
+### Prompts / skills
+
+`ListPrompts`/`GetPrompt` in `createMcpServer` serve `skills/*/SKILL.md` (copied into the image as `/app/skills`). Unknown prompt or missing required argument → `McpError(InvalidParams)`. `prompts/get` is logged as `action="get_prompt" params={"name":…}` without argument values. SQL in the skills must run read-only via `query` (one statement, `$1` params) and on PostgreSQL 13+; the skills forbid `execute`, `pg_cancel_backend`/`pg_terminate_backend` and setting changes without user confirmation. User docs: `docs/skills.md`.
 
 ### Performance tools
 
@@ -158,10 +163,10 @@ Two services on `mcp-net`: `postgres-test` (port 5433, `pg_isready` healthcheck)
 
 ## Tests
 
-Three test files in `tests/`:
+Test files in `tests/` (plus `branding.test.js`, `prompts.test.js` — real `skills/` dir and temp dirs, `lib.js` mocked):
 - `lib.test.js` — unit tests for all `lib.js` exports; mocks `node:fs` for token store tests
 - `admin.test.js` — `handleAdminRequest` CRUD; mocks `node:fs` (`readFileSync`/`writeFileSync`) via `vi.hoisted`
-- `index.test.js` — `handleRequest` routing, `getPool` caching, `createMcpServer` ListTools + CallTool (all 12 tools)
+- `index.test.js` — `handleRequest` routing, `getPool` caching, `createMcpServer` ListTools + CallTool (all 12 tools) + ListPrompts/GetPrompt
 
 `index.test.js` mocks `pg`, all MCP SDK modules, and `lib.js`. `capturedHandlers` (hoisted) captures `setRequestHandler` callbacks so tool handlers can be invoked directly in tests.
 

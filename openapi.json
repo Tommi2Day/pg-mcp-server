@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "PostgreSQL MCP Server",
-    "version": "0.4.1",
+    "version": "1.0.0",
     "license": {
       "name": "MIT",
       "identifier": "MIT"

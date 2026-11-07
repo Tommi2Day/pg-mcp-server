@@ -15,6 +15,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - `execute` runs in a transaction with automatic `ROLLBACK` on error
 - Parameterized queries (`params`), results capped at 200 rows to keep LLM context small
 - Query plans via `explain_query` (or `EXPLAIN` through `query`): `ANALYZE` actually runs the statement, but inside a read-only transaction that is always rolled back; `generic_plan` explains statements with unbound `$1` placeholders (PostgreSQL 16+)
+- **Guided DBA workflows** as MCP prompts and Agent Skills: what is my database doing, top sessions, top SQL, locks and waits, SQL tuning, schema documentation, error analysis ([Skills](docs/skills.md))
 - Performance tuning: slowest statements from `pg_stat_statements`, stale statistics and per-column planner statistics, table bloat and seq-scan hot spots, unused/duplicate/invalid indexes, running and blocked sessions with wait events, cache hit ratio and key settings — all read-only, see [Performance analysis](docs/performance.md)
 
 **Multi-user & access control**
@@ -440,7 +441,7 @@ The inspector opens a browser UI where you can list tools, call them individuall
 The chart is published to the GitHub Container Registry with every release:
 
 ```bash
-helm show values oci://ghcr.io/tommi2day/charts/pg-mcp-server --version 0.4.1
+helm show values oci://ghcr.io/tommi2day/charts/pg-mcp-server --version 1.0.0
 ```
 
 Omit `--version` for the latest release. The examples below install from the registry; to use a local checkout,
@@ -994,7 +995,7 @@ With `LOG_LEVEL=debug` the full SQL text is logged:
 
 | Category | Level | When |
 |----------|-------|------|
-| `[MCP]` | info / error | MCP tool call (success and error). Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, `"stdio"` in stdio mode, or the file token's name. `params` is omitted for tools with no arguments. The `sql` parameter is replaced by its length unless `LOG_LEVEL=debug`. |
+| `[MCP]` | info / error | MCP tool call (success and error); `action="get_prompt"` with the prompt name for `prompts/get`. Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, `"stdio"` in stdio mode, or the file token's name. `params` is omitted for tools with no arguments. The `sql` parameter is replaced by its length unless `LOG_LEVEL=debug`. |
 | `[SESSION]` | info | HTTP MCP session start and stop (with duration). Stop is logged when the client ends the session (`DELETE /mcp`) or the transport closes; clients that just disappear produce no stop line. |
 | `[AUTH]` | warn | Rejected request (401). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name). The presented token is never logged. |
 | `[ADMIN]` | info / error | Admin API request. `token="admin"` when authenticated with `AUTH_TOKEN`, `token="anonymous"` when auth is disabled. Stack traces of admin errors at `debug`. |
@@ -1100,6 +1101,22 @@ All scripts require only Docker — no local Node.js needed.
 | `performance_overview` | Cache hit ratio, connections, temp files, deadlocks and key tuning settings |
 
 The performance tools work best with `GRANT pg_monitor TO <user>` and the `pg_stat_statements` extension — details, workflows and troubleshooting in [Performance analysis](docs/performance.md).
+
+### MCP prompts / Agent Skills
+
+Seven guided workflows built on these tools, served as MCP prompts (e.g. `/mcp__postgresql__pg-activity` in Claude Code) and shipped as Agent Skills in [`skills/`](skills/):
+
+| Prompt / skill | Purpose |
+|----------------|---------|
+| `pg-activity` | What is my database doing right now — load, sessions, top SQL, health flags |
+| `pg-top-sessions` | Longest sessions and transactions, connections per user / application / host |
+| `pg-top-sql` | Most expensive statements by total time, mean time, calls, I/O, temp |
+| `pg-locks-waits` | Blocking chains, root blockers, lock and wait analysis, deadlocks |
+| `pg-sql-tuning` | Plan analysis, statistics, index and rewrite proposals for one statement |
+| `pg-document` | Markdown documentation of a schema with Mermaid ER diagram |
+| `pg-error-analysis` | Explains a PostgreSQL error / SQLSTATE with evidence and a fix |
+
+Usage per client, installing the skills and safety notes: [Skills](docs/skills.md).
 
 ---
 

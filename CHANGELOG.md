@@ -6,9 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.1] - 2026-11-07
+## [1.0.0] - 2026-11-07
+
+First complete version: MCP tools, performance analysis, guided DBA workflows (prompts / skills), multi-user
+token management with Admin UI, Docker image and Helm chart on GHCR. Combines the changes previously released as 0.4.1.
 
 ### Added
+- Guided DBA workflows as **MCP prompts** and **Agent Skills** (`skills/<name>/SKILL.md`, one source for both):
+  `pg-activity` (what is my database doing), `pg-top-sessions`, `pg-top-sql`, `pg-locks-waits`, `pg-sql-tuning`,
+  `pg-document`, `pg-error-analysis`. The server announces the `prompts` capability; see [docs/skills.md](docs/skills.md)
+- Log line `[MCP] action="get_prompt" params={"name":"…"}` for `prompts/get` (argument values are not logged)
 - Helm chart is published to the GitHub Container Registry with every release:
   `helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server` (workflow `helm-publish.yml`, also runnable by hand)
 - Helm chart icon (`docs/images/icon.svg`, the admin UI database symbol)
@@ -267,7 +274,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.4.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.4.0...1.0.0
 [0.4.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.1...0.2.2

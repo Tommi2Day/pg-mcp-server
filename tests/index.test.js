@@ -39,6 +39,12 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
 vi.mock("@modelcontextprotocol/sdk/types.js", () => ({
   ListToolsRequestSchema: "LIST_TOOLS",
   CallToolRequestSchema: "CALL_TOOL",
+  ListPromptsRequestSchema: "LIST_PROMPTS",
+  GetPromptRequestSchema: "GET_PROMPT",
+  ErrorCode: { InvalidParams: -32602 },
+  McpError: class McpError extends Error {
+    constructor(code, message) { super(message); this.code = code; }
+  },
 }));
 
 vi.mock("../src/lib.js", async (importOriginal) => {
@@ -314,6 +320,49 @@ describe("createMcpServer – ListTools", () => {
       expect(tool.description).toBeTruthy();
       expect(tool.inputSchema).toBeDefined();
     }
+  });
+});
+
+// ── createMcpServer – prompts ─────────────────────────────────────────────────
+describe("createMcpServer – prompts", () => {
+  const SKILLS = ["pg-activity", "pg-document", "pg-error-analysis", "pg-locks-waits", "pg-sql-tuning",
+    "pg-top-sessions", "pg-top-sql"];
+
+  it("ListPrompts returns the skills from skills/*/SKILL.md with arguments", async () => {
+    createMcpServer({ query: vi.fn() });
+    const result = await capturedHandlers["LIST_PROMPTS"]({});
+    expect(result.prompts.map(p => p.name)).toEqual(SKILLS);
+    for (const p of result.prompts) {
+      expect(p.description.length).toBeGreaterThan(20);
+      expect(Array.isArray(p.arguments)).toBe(true);
+      expect(p).not.toHaveProperty("body");
+    }
+    const errorPrompt = result.prompts.find(p => p.name === "pg-error-analysis");
+    expect(errorPrompt.arguments).toContainEqual(expect.objectContaining({ name: "error", required: true }));
+  });
+
+  it("GetPrompt returns the skill body with the arguments as Input section and logs the call", async () => {
+    vi.mocked(log).mockClear();
+    createMcpServer({ query: vi.fn() }, "alice", "10.0.0.9");
+    const result = await capturedHandlers["GET_PROMPT"]({
+      params: { name: "pg-sql-tuning", arguments: { sql: "SELECT * FROM t WHERE x = 1" } },
+    });
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].role).toBe("user");
+    const text = result.messages[0].content.text;
+    expect(text).toContain("# SQL tuning");
+    expect(text).not.toMatch(/^---/);
+    expect(text.endsWith("## Input\n\n- sql: SELECT * FROM t WHERE x = 1")).toBe(true);
+    expect(log).toHaveBeenCalledWith("info", "MCP",
+      'token="alice" action="get_prompt" ip="10.0.0.9" params={"name":"pg-sql-tuning"}');
+  });
+
+  it("GetPrompt rejects unknown prompts and missing required arguments with InvalidParams", async () => {
+    createMcpServer({ query: vi.fn() });
+    await expect(capturedHandlers["GET_PROMPT"]({ params: { name: "nope" } }))
+      .rejects.toMatchObject({ code: -32602, message: "Unknown prompt: nope" });
+    await expect(capturedHandlers["GET_PROMPT"]({ params: { name: "pg-error-analysis", arguments: {} } }))
+      .rejects.toMatchObject({ code: -32602, message: expect.stringContaining("error") });
   });
 });
 

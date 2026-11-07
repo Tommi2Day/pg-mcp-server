@@ -16,6 +16,7 @@ WORKDIR /app
 COPY ["package.json","package-lock.json","docker-entrypoint.sh", "/app/"]
 COPY --from=deps /app/node_modules /app/node_modules
 COPY src/ /app/src/
+COPY skills/ /app/skills/
 RUN chmod +x /app/docker-entrypoint.sh
 RUN mkdir -p /certs /data && chown -R node:node /certs /data
 

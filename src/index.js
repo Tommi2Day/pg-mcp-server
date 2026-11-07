@@ -18,7 +18,10 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema,
+  McpError, ErrorCode,
+} from "@modelcontextprotocol/sdk/types.js";
 import pg from "pg";
 import fs from "node:fs";
 import https from "node:https";
@@ -33,6 +36,7 @@ import {
   clientConnectionFromHeaders, applyClientConnection, ClientConnectionError,
 } from "./lib.js";
 import { loadAdminBranding, renderAdminHtml } from "./branding.js";
+import { loadPrompts, buildPromptResult } from "./prompts.js";
 
 const { Pool } = pg;
 const { version } = createRequire(import.meta.url)("../package.json");
@@ -45,6 +49,9 @@ try {
   const raw = fs.readFileSync(new URL("./admin.html", import.meta.url), "utf8");
   cachedAdminHtml = Buffer.from(renderAdminHtml(raw, mcpServerName, loadAdminBranding()));
 } catch { /* admin UI not available */ }
+
+// Guided workflows from skills/*/SKILL.md, served as MCP prompts
+export const PROMPTS = loadPrompts();
 
 // ── DB pools ──────────────────────────────────────────────────────────────────
 // One pool per (connection, token name): the token name is part of application_name,
@@ -160,7 +167,7 @@ const USER_SCHEMA = "n.nspname NOT IN ('pg_catalog','information_schema') AND n.
 export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
   const server = new Server(
     { name: mcpServerName, version },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {}, prompts: {} } }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -311,6 +318,22 @@ export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
       log("error", "MCP", `token="${tokenName}" action="${name}" ip="${clientIp}" error=${JSON.stringify(msg)}`);
       const hint = PERF_TOOL_NAMES.has(name) && PRIVILEGE_ERROR.test(msg) ? PRIVILEGE_HINT : "";
       return { content: [{ type: "text", text: `❌ Error: ${msg}${hint}` }], isError: true };
+    }
+  });
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: PROMPTS.map(({ name, description, arguments: promptArgs }) => ({ name, description, arguments: promptArgs })),
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    log("info", "MCP", `token="${tokenName}" action="get_prompt" ip="${clientIp}" params=${JSON.stringify({ name })}`);
+    const prompt = PROMPTS.find((p) => p.name === name);
+    if (!prompt) throw new McpError(ErrorCode.InvalidParams, `Unknown prompt: ${name}`);
+    try {
+      return buildPromptResult(prompt, args);
+    } catch (err) {
+      throw new McpError(ErrorCode.InvalidParams, err.message);
     }
   });
 

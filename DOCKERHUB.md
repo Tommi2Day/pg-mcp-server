@@ -12,6 +12,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - `execute` runs in a transaction with automatic `ROLLBACK` on error
 - Parameterized queries (`params`), results capped at 200 rows to keep LLM context small
 - Query plans via `explain_query` (or `EXPLAIN` through `query`): `ANALYZE` actually runs the statement, but inside a read-only transaction that is always rolled back; `generic_plan` explains statements with unbound `$1` placeholders (PostgreSQL 16+)
+- **Guided DBA workflows** as MCP prompts: what is my database doing, top sessions, top SQL, locks and waits, SQL tuning, schema documentation, error analysis ([Skills](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/skills.md))
 - Performance tuning: slowest statements from `pg_stat_statements`, stale statistics and per-column planner statistics, table bloat and seq-scan hot spots, unused/duplicate/invalid indexes, running and blocked sessions with wait events, cache hit ratio and key settings — all read-only, see [Performance analysis](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/performance.md)
 
 **Multi-user & access control**
