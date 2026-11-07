@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker image runs `apk upgrade` at build time so patched Alpine system libraries (e.g. brotli-libs) are picked up
 - Docker image is multi-stage and no longer ships npm/npx/corepack (unused at runtime, carried CVEs in bundled
   brace-expansion/undici); Trivy reports 0 vulnerabilities
+- Dockerfile no longer declares an empty `ENV PG_PASSWORD` (Docker build check `SecretsUsedInArgOrEnv`); an unset
+  variable behaves the same, compose and Helm still pass it at runtime
 
 ### Changed
 - Internal refactoring to keep the cognitive complexity of every function below 15 (Sonar rule S3776): each MCP

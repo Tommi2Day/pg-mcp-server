@@ -162,6 +162,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          # CHANGELOG.md section "## [<tag>]" first, the generated PR list is appended
+          awk -v tag="$TAG" '
+            index($0, "## [" tag "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
           gh release create "$TAG" \
             --title "$TAG" \
+            --notes-file release-notes.md \
             --generate-notes

@@ -7,7 +7,7 @@ RUN npm ci --omit=dev
 FROM node:24-alpine
 
 RUN apk upgrade --no-cache && apk add --no-cache openssl curl \
-    # npm/npx/corepack are not needed at runtime (and carry their own bundled-package CVEs)
+    # npm/npx/corepack are not needed at runtime (and carry their own bundled-package CVEs) \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
               /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 
@@ -28,7 +28,6 @@ ENV TRANSPORT=http \
     PG_PORT=5432 \
     PG_DATABASE=postgres \
     PG_USER=postgres \
-    PG_PASSWORD="" \
     PG_SSL=false
 
 USER node
