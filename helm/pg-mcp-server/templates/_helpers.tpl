@@ -47,3 +47,17 @@ Selector labels.
 app.kubernetes.io/name: {{ include "pg-mcp-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+SANs for the auto-generated self-signed cert: the Service DNS names (short, namespaced,
+.svc and FQDN) so in-cluster clients can verify it, plus the user-supplied tls.san.
+*/}}
+{{- define "pg-mcp-server.tlsSan" -}}
+{{- $svc := include "pg-mcp-server.fullname" . }}
+{{- $ns := .Release.Namespace }}
+{{- $san := list (printf "DNS:%s" $svc) (printf "DNS:%s.%s" $svc $ns) (printf "DNS:%s.%s.svc" $svc $ns) (printf "DNS:%s.%s.svc.%s" $svc $ns .Values.tls.clusterDomain) }}
+{{- with .Values.tls.san }}
+{{- $san = append $san . }}
+{{- end }}
+{{- join "," $san }}
+{{- end }}

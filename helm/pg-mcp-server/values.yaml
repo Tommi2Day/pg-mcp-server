@@ -73,9 +73,12 @@ tls:
   cert: ""
   key: ""
 
-  # Additional SANs for the auto-generated self-signed cert (when /certs is empty).
-  # Example: "DNS:my-host.local,IP:192.168.1.10"
+  # The auto-generated self-signed cert (no existingSecret / cert+key) always includes localhost, the pod
+  # name and the Service DNS names (<svc>, <svc>.<ns>, <svc>.<ns>.svc, <svc>.<ns>.svc.<clusterDomain>).
+  # Additional SANs, e.g. the ingress host: "DNS:my-host.local,IP:192.168.1.10"
   san: ""
+  # Cluster DNS domain for the Service FQDN in the self-signed cert
+  clusterDomain: "cluster.local"
 
   # CA to verify PostgreSQL server cert (required when postgresql.ssl=verify)
   # Secret must contain "ca.crt"

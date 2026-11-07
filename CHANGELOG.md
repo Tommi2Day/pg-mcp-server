@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variable behaves the same, compose and Helm still pass it at runtime
 
 ### Changed
+- Helm chart: the self-signed certificate (no `tls.existingSecret`) includes the Service DNS names (`<svc>`,
+  `<svc>.<ns>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.<tls.clusterDomain>`), so in-cluster clients can verify it;
+  `tls.san` adds to them. New value `tls.clusterDomain` (default `cluster.local`)
 - Internal refactoring to keep the cognitive complexity of every function below 15 (Sonar rule S3776): each MCP
   tool is its own function (`TOOL_HANDLERS` in `index.js`), the HTTP router, session start/resume and the admin
   token API (`handleAdminRequest`) are split into small handlers. No change in behavior, API or log output

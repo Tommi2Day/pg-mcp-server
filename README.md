@@ -461,6 +461,11 @@ helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server \
 
 ### With HTTPS
 
+Without `tls.existingSecret` (or `tls.cert`/`tls.key`) the pod generates a self-signed certificate on every start.
+It covers `localhost`, the pod name and the Service DNS names (`<release>-pg-mcp-server`, `.<namespace>`, `.<namespace>.svc`,
+`.<namespace>.svc.cluster.local`; set `tls.clusterDomain` for another cluster domain), so in-cluster clients can verify it.
+Add further names, e.g. the ingress host, with `--set tls.san=DNS:pg-mcp.example.com`.
+
 ```bash
 # Create TLS secret
 kubectl create secret tls pg-mcp-tls \

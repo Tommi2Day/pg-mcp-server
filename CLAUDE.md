@@ -144,7 +144,7 @@ Key values:
 - `auth.token` / `auth.existingSecret` → Secret `<release>-auth`
 - `postgresql.existingSecret` → Secret `<release>-pg-credentials`
 - `tls.existingSecret` / `tls.cert` + `tls.key` → HTTPS
-- `tls.san` → `TLS_SAN` env var (additional SANs for self-signed cert)
+- `TLS_SAN` is always set with TLS (helper `pg-mcp-server.tlsSan`): the Service DNS names (`<svc>`, `.<ns>`, `.<ns>.svc`, `.<ns>.svc.<tls.clusterDomain>`) plus `tls.san` — only used for the self-signed cert, which is regenerated on every pod start (`/certs` is an emptyDir)
 - `server.tlsEnabled: true` → httpGet probes default to `scheme: HTTPS` (deepCopy + `set` in `deployment.yaml`; an explicit `scheme` in values wins)
 - TLS and PG client-cert secrets are mounted with `defaultMode: 0440` (readable via `fsGroup: 1000`, key not world-readable)
 - `server.name` → `MCP_SERVER_NAME` env var (server name shown in MCP clients and Admin UI; default `pg-mcp-server`)

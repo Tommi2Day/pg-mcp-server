@@ -75,10 +75,8 @@ spec:
             - name: TLS_CA_FILE
               value: /certs-client-ca/ca.crt
             {{- end }}
-            {{- if .Values.tls.san }}
             - name: TLS_SAN
-              value: {{ .Values.tls.san | quote }}
-            {{- end }}
+              value: {{ include "pg-mcp-server.tlsSan" . | quote }}
             {{- end }}
 
             # ── Token store ───────────────────────────────────────────────
