@@ -6,11 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.1] - 2026-11-06
+## [0.4.1] - 2026-11-07
 
 ### Security
 - Updated dependencies (`@modelcontextprotocol/sdk` 1.32.2, `pg` 8.23.1, vitest/eslint/globals); `npm audit fix` clears the
   zod, vite and source-map-js advisories. Production dependencies: 0 known vulnerabilities
+- `package.json` overrides `minimatch` to `^11.0.5` (GHSA-g3hv-75wg-m249, pulled in by eslint 10 /
+  `@eslint/config-array`) instead of the `npm audit fix --force` downgrade to eslint 9. Dev dependency only;
+  `npm audit` reports 0 vulnerabilities
 - Docker image runs `apk upgrade` at build time so patched Alpine system libraries (e.g. brotli-libs) are picked up
 - Docker image is multi-stage and no longer ships npm/npx/corepack (unused at runtime, carried CVEs in bundled
   brace-expansion/undici); Trivy reports 0 vulnerabilities

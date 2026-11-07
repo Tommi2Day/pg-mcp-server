@@ -4,3 +4,5 @@ coverage/
 .env
 auth_token
 tokens.json
+.idea/
+wetter/
