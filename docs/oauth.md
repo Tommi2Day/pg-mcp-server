@@ -25,6 +25,7 @@ disabled.
 | `OAUTH_CLIENT_ID` | – | App registration used for the admin UI login (and default audience) |
 | `OAUTH_CLIENT_SECRET` | – | Client secret for the browser login (omit for public clients; PKCE is always used) |
 | `OAUTH_PUBLIC_URL` | – | External base URL, e.g. `https://mcp.example.com`. Redirect URI = `<url>/auth/callback`; `https` also sets the cookie `Secure` flag |
+| `OAUTH_RESOURCE_SCOPES` | `<audience>/.default` | Scopes advertised to MCP clients in `/.well-known/oauth-protected-resource` (space or comma separated). The default is right for Entra ID; set it for other providers, e.g. `openid profile email` for Keycloak |
 | `OAUTH_REDIRECT_URI` | `<OAUTH_PUBLIC_URL>/auth/callback` | Explicit redirect URI |
 | `OAUTH_SCOPES` | `openid profile email` | Scopes of the browser login |
 | `OAUTH_GROUPS_CLAIM` | `groups` | Claim with the groups; dotted paths work (`realm_access.roles`); Entra app roles: `roles` |
@@ -70,6 +71,45 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
   *environment*) and the **admin UI** (section *OAuth assignments*, REST `/admin/assignments`; stored in the token
   store file, passwords encrypted with `STORE_ENCRYPTION_KEY`). Changes apply immediately, also to open sessions of
   the admin UI. Open MCP sessions keep their pool; the next session uses the new connection.
+
+## MCP clients
+
+Nothing OAuth-specific is needed in the client configuration unless you want the client to log in by itself. There
+are two ways to get the access token to the server:
+
+**1. Static header** — works with every client. The token is an access token of your provider; it expires (Keycloak
+test realm: 5 minutes, Entra: about an hour), so this suits scripts and tests, or clients and wrappers that refresh it.
+
+```json
+{ "mcpServers": { "pg": { "type": "http", "url": "https://mcp.example.com/mcp",
+    "headers": { "Authorization": "Bearer <access token>" } } } }
+```
+
+**2. The client does the OAuth login** — for people. Clients that implement the MCP authorization spec (Claude Code,
+Claude Desktop / claude.ai connectors, VS Code, …) need only the URL; they open a browser login and refresh the token
+themselves:
+
+```json
+{ "mcpServers": { "pg": { "type": "http", "url": "https://mcp.example.com/mcp" } } }
+```
+
+How it works: an unauthenticated request gets `401` with `resource_metadata` (needs `OAUTH_PUBLIC_URL`); the client
+reads `/.well-known/oauth-protected-resource`, finds the issuer in `authorization_servers`, requests the
+`scopes_supported` (**`OAUTH_RESOURCE_SCOPES`**) and runs authorization code + PKCE against the provider. The server
+is only the resource server; the provider issues the tokens. What the provider side needs:
+
+| Need | Details |
+|------|---------|
+| **Client registration** | The client needs a client id at the provider: either *Dynamic Client Registration* (Keycloak supports it, often restricted by policy; **Entra ID does not**) or a **pre-registered public client** (PKCE, no secret) whose id you give to the client: `claude mcp add --transport http --client-id <id> pg https://mcp.example.com/mcp` (add `--client-secret` for a confidential client). Allow the client's redirect URIs, e.g. `http://localhost:<port>/callback` (Claude Code), `https://claude.ai/api/mcp/auth_callback` (claude.ai) |
+| **Audience** | The access token must carry `aud` = `OAUTH_AUDIENCE`. Entra: the client requests the scope `api://<app-id>/<scope>` (`OAUTH_RESOURCE_SCOPES` default `api://<app-id>/.default`) and the app registration lists the client as authorized. Keycloak: an *Audience* mapper on the client (or a client scope the client requests) |
+| **Groups / e-mail** | The groups claim (`OAUTH_GROUPS_CLAIM`) and `email` must be in the **access token**: Keycloak *Group Membership* mapper, Entra *groups claim* / optional claim `email` |
+| **Scopes** | `OAUTH_RESOURCE_SCOPES` must name scopes the provider knows. Entra: leave the default. Keycloak: `openid profile email` (there is no `api://…/.default`) |
+
+The user must also match an [assignment](#assignments); a valid login without one gets `403`.
+
+The Keycloak test realm contains such a pre-registered client, `pgmcp-mcp-client`, and
+`tests/oidc.integration.test.js` plays the client's part (authorization code + PKCE, then the token against the server).
+Not covered: a real MCP client end to end (browser, token refresh, dynamic registration).
 
 ## Microsoft Entra ID setup
 
@@ -129,6 +169,29 @@ Formats: [logging.md](logging.md). Group ids are not logged (only the id of the 
 - Use HTTPS (`TLS_ENABLED` or an ingress): bearer tokens and the session cookie must not travel in clear text.
 - Per user a connection pool is kept (idle connections close after 10 s).
 
+## Trying it locally with Keycloak
+
+The compose file has a `keycloak` profile with a real provider — admin console, login page, REST API — and a
+ready-made realm (`tests/oidc/keycloak-realm.json`, imported at startup): users `alice` (group `grp-dba`), `bob`
+(`grp-users`), `eve` (`grp-other`, no assignment) and `root` (`grp-admin`), password = user name; client `pgmcp-web`
+(admin UI login, authorization code + PKCE), `pgmcp-mcp-client` (public, PKCE: the pre-registered client for MCP
+clients that log in themselves, see [MCP clients](#mcp-clients)) and `pgmcp-test` (password grant, to get access
+tokens with `curl`).
+Groups come from a *Group Membership* mapper (claim `groups`), the audience `api://pg-mcp` from an *Audience* mapper.
+
+```bash
+docker compose --env-file examples/oauth-keycloak.env --profile keycloak up -d --build
+# Admin UI:  http://localhost:3000/admin  → "Sign in with single sign-on"  (root / root is an admin)
+# Keycloak:  http://localhost:8081        (admin / admin: add users and groups, change mappers)
+# Claude Code logging in by itself:
+#   claude mcp add --transport http --client-id pgmcp-mcp-client pg http://localhost:3000/mcp
+TOKEN=$(curl -s -X POST http://localhost:8081/realms/pg-mcp/protocol/openid-connect/token   -d grant_type=password -d client_id=pgmcp-test -d username=alice -d password=alice | jq -r .access_token)
+```
+
+`examples/oauth-keycloak.env` sets `OAUTH_AUTHORIZATION_ENDPOINT`, `OAUTH_TOKEN_ENDPOINT` and `OAUTH_JWKS_URI`
+explicitly: the browser knows Keycloak as `localhost:8081` (which is also the token issuer), the server container as
+`keycloak:8080`. More users: the admin console, or `kcadm.sh` / the Keycloak admin REST API against the running container.
+
 ## Tests
 
 - `tests/oauth.test.js`, `tests/oauth-auth.test.js`: JWT validation, assignments, login flow, admin API, audit — with a
@@ -140,6 +203,11 @@ docker compose --profile oidc up -d oidc-test      # ghcr.io/navikt/mock-oauth2-
 OIDC_TEST_ISSUER=http://localhost:8080/default npx vitest run tests/oidc.integration.test.js
 docker compose --profile oidc down
 ```
+
+  The same test also runs against **Keycloak** (real login form, wrong password, verified e-mails, the pre-registered
+  MCP client): `docker compose --profile keycloak up -d --wait keycloak`, then
+  `OIDC_TEST_ISSUER=http://localhost:8081/realms/pg-mcp npx vitest run tests/oidc.integration.test.js`
+  (an issuer containing `/realms/` selects the Keycloak variant; CI runs both).
 
 - `tests/postgres.integration.test.js` checks the whole path with a real PostgreSQL (`docker compose up -d postgres-test`,
   `PG_TEST_HOST=localhost PG_TEST_PORT=5433`): the group of a user selects the sample database, `pg_stat_activity` shows

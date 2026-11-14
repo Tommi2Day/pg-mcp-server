@@ -33,6 +33,37 @@ services:
     networks:
       - mcp-net
 
+  # Real OIDC provider with admin console and login page (docker compose --profile keycloak up -d --wait keycloak).
+  # Realm "pg-mcp" is imported from tests/oidc/keycloak-realm.json: users alice/bob/eve/root (password = name,
+  # groups grp-dba/grp-users/grp-other/grp-admin), clients pgmcp-web (browser login), pgmcp-mcp-client (public, PKCE)
+  # and pgmcp-test (password grant).
+  # Admin console: http://localhost:8081  (admin / admin). Issuer: http://localhost:8081/realms/pg-mcp
+  # Run: OIDC_TEST_ISSUER=http://localhost:8081/realms/pg-mcp npx vitest run tests/oidc.integration.test.js
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    profiles: ["keycloak"]
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8081:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      # Token issuer is http://localhost:8081/...; the server container reaches Keycloak as keycloak:8080
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./tests/oidc/keycloak-realm.json:/opt/keycloak/data/import/pg-mcp.json:ro
+    healthcheck:
+      # The image has no curl: plain HTTP request to the management port
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - mcp-net
+
   pg-mcp-server:
     build: .
     image: pg-mcp-server:latest
@@ -79,6 +110,10 @@ services:
       OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-}"
       OAUTH_AUDIENCE: "${OAUTH_AUDIENCE:-}"
       OAUTH_PUBLIC_URL: "${OAUTH_PUBLIC_URL:-}"
+      OAUTH_RESOURCE_SCOPES: "${OAUTH_RESOURCE_SCOPES:-}"
+      OAUTH_JWKS_URI: "${OAUTH_JWKS_URI:-}"
+      OAUTH_AUTHORIZATION_ENDPOINT: "${OAUTH_AUTHORIZATION_ENDPOINT:-}"
+      OAUTH_TOKEN_ENDPOINT: "${OAUTH_TOKEN_ENDPOINT:-}"
       OAUTH_GROUPS_CLAIM: "${OAUTH_GROUPS_CLAIM:-}"
       OAUTH_ALLOWED_GROUPS: "${OAUTH_ALLOWED_GROUPS:-}"
       OAUTH_ALLOWED_USERS: "${OAUTH_ALLOWED_USERS:-}"

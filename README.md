@@ -77,7 +77,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
-| `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …); more `OAUTH_*` variables in [docs/oauth.md](docs/oauth.md) |
+| `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …); more `OAUTH_*` variables (e.g. `OAUTH_RESOURCE_SCOPES`) in [docs/oauth.md](docs/oauth.md) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
@@ -681,7 +681,9 @@ OAUTH_PUBLIC_URL=https://mcp.example.com
 OAUTH_ADMIN_GROUPS=<admin-group-object-id>  OAUTH_ALLOWED_GROUPS=<user-group-object-id>
 ```
 
-Full reference, Entra setup steps and security notes: [docs/oauth.md](docs/oauth.md).
+Full reference, Entra setup steps and security notes: [docs/oauth.md](docs/oauth.md). To try single sign-on yourself,
+[docs/oauth.md](docs/oauth.md#trying-it-locally-with-keycloak) starts the whole stack with a Keycloak realm (admin
+console, users and groups included).
 
 ### Client-supplied connections
 

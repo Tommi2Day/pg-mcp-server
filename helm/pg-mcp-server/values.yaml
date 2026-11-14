@@ -55,6 +55,7 @@ oauth:
   groupsClaim: ""              # default: groups (Entra: groups, or roles for app roles)
   emailClaim: ""               # default: email, preferred_username, upn
   scopes: ""                   # default: openid profile email
+  resourceScopes: ""           # scopes MCP clients are told to request (default: <audience>/.default; Keycloak: openid profile email)
   allowedGroups: ""            # comma separated group ids; may use the server with the default connection
   allowedUsers: ""             # comma separated e-mails (or *@domain)
   adminGroups: ""

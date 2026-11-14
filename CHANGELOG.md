@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Keycloak as a real test and demo identity provider: compose profile `keycloak` (`docker compose --profile keycloak up -d
+  --wait keycloak`, console on port 8081) with the realm `tests/oidc/keycloak-realm.json` (users, groups, audience and
+  groups mappers; clients for the browser login, password grant and the pre-registered MCP client `pgmcp-mcp-client`,
+  authorization code + PKCE) and `examples/oauth-keycloak.env` for the full stack with SSO login in the admin UI.
+  `tests/oidc.integration.test.js` runs against the mock server or Keycloak (real login form, wrong password, verified
+  e-mails, MCP client login); the CI job runs both. docs/oauth.md: new sections *MCP clients* and *Trying it locally with Keycloak*
+- `OAUTH_RESOURCE_SCOPES` (Helm `oauth.resourceScopes`): scopes advertised to MCP clients in the protected-resource
+  metadata; default `<audience>/.default` as before (right for Entra ID), e.g. `openid profile email` for Keycloak
+
 ## [1.1.0] - 2026-11-14
 
 ### Added

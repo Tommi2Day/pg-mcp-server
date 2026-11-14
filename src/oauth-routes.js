@@ -88,7 +88,7 @@ function protectedResource(req, res) {
     resource: oauth.publicUrl ? `${oauth.publicUrl}/mcp` : undefined,
     authorization_servers: [oauth.issuer],
     bearer_methods_supported: ["header"],
-    scopes_supported: oauth.audience.map(a => `${a}/.default`),
+    scopes_supported: oauth.resourceScopes || oauth.audience.map(a => `${a}/.default`),
   });
 }
 

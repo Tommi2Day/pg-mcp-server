@@ -31,6 +31,8 @@ export function getOAuthConfig() {
     publicUrl,
     redirectUri: (process.env.OAUTH_REDIRECT_URI || "").trim() || (publicUrl ? `${publicUrl}/auth/callback` : ""),
     scopes: (process.env.OAUTH_SCOPES || "openid profile email").trim(),
+    /** Scopes advertised to MCP clients in the protected-resource metadata (default `<audience>/.default`, right for Entra ID). */
+    resourceScopes: resourceScopes(),
     groupsClaim: (process.env.OAUTH_GROUPS_CLAIM || "groups").trim(),
     emailClaim: (process.env.OAUTH_EMAIL_CLAIM || "").trim(),
     requireVerifiedEmail: /^(1|true|yes)$/i.test(process.env.OAUTH_REQUIRE_VERIFIED_EMAIL || ""),
@@ -39,6 +41,11 @@ export function getOAuthConfig() {
     tokenEndpoint: (process.env.OAUTH_TOKEN_ENDPOINT || "").trim(),
     sessionTtl: Number.isFinite(ttl) && ttl > 0 ? ttl : 28800,
   };
+}
+
+function resourceScopes() {
+  const given = (process.env.OAUTH_RESOURCE_SCOPES || "").split(/[\s,]+/).filter(Boolean);
+  return given.length ? given : null;
 }
 
 /** Human readable configuration errors (empty list = usable). */

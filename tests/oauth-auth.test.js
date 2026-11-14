@@ -351,4 +351,10 @@ describe("OAuth routes (browser login)", () => {
     const { res } = await route("GET", "/.well-known/oauth-protected-resource");
     expect(resBody(res)).toMatchObject({ resource: "https://mcp.test/mcp", authorization_servers: [expect.stringContaining("idp.test")] });
   });
+
+  it("advertises <audience>/.default scopes, or OAUTH_RESOURCE_SCOPES (space or comma separated) for other providers", async () => {
+    expect(resBody((await route("GET", "/.well-known/oauth-protected-resource")).res).scopes_supported).toEqual(["api://pg-mcp/.default"]);
+    process.env.OAUTH_RESOURCE_SCOPES = "openid profile, email";
+    expect(resBody((await route("GET", "/.well-known/oauth-protected-resource")).res).scopes_supported).toEqual(["openid", "profile", "email"]);
+  });
 });
