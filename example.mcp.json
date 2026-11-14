@@ -1,10 +1,54 @@
 {
   "mcpServers": {
     "postgresql-test": {
-      "type": "https",
-      "url": "https://pg-mxp-server.local:3000/mcp",
+      "type": "http",
+      "url": "https://pg-mcp-server.local:3000/mcp",
       "headers": {
         "Authorization": "Bearer xxxxxx"
+      }
+    }
+  },
+
+  "_inactive_examples": {
+    "_comment": "Not used by any client: unknown top-level keys are ignored. Copy an entry into mcpServers to activate it (README: MCP Client Configuration, docs/oauth.md: MCP clients).",
+
+    "postgresql-oauth": {
+      "_comment": "OAuth 2.0 / OIDC (OAUTH_ISSUER + OAUTH_PUBLIC_URL on the server): the client finds the identity provider through /.well-known/oauth-protected-resource and logs the user in itself. Only the URL is configured. With a pre-registered public client the id is passed on the command line: claude mcp add --transport http --client-id <client-id> postgresql <url>",
+      "type": "http",
+      "url": "https://pg-mcp-server.local:3000/mcp"
+    },
+
+    "postgresql-oauth-static-token": {
+      "_comment": "OAuth access token as static header (scripts, tests). It expires (minutes to an hour), so this is not for daily use by people.",
+      "type": "http",
+      "url": "https://pg-mcp-server.local:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer <access token of the identity provider>"
+      }
+    },
+
+    "postgresql-own-credentials": {
+      "_comment": "Client-supplied connection, mode 'credentials' (token field client_connection, assignment client_connection or PG_CLIENT_CONNECTION): the bearer token authorizes the client, X-Pg-User / X-Pg-Password log in with the person's own database account on the target of the token. Use HTTPS; the headers are sent on the initialize request and apply to the whole session.",
+      "type": "http",
+      "url": "https://pg-mcp-server.local:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer xxxxxx",
+        "X-Pg-User": "alice",
+        "X-Pg-Password": "secret"
+      }
+    },
+
+    "postgresql-own-database": {
+      "_comment": "Client-supplied connection, mode 'full': the client also chooses the target (X-Pg-Host, -Port, -Database, -Ssl) and must supply user and password.",
+      "type": "http",
+      "url": "https://pg-mcp-server.local:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer xxxxxx",
+        "X-Pg-Host": "db.example.com",
+        "X-Pg-Port": "5432",
+        "X-Pg-Database": "sales",
+        "X-Pg-User": "alice",
+        "X-Pg-Password": "secret"
       }
     }
   }
