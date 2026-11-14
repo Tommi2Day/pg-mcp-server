@@ -100,7 +100,9 @@ describe("handleAdminRequest", () => {
     const req = makeReq("GET", "/admin/tokens");
     const res = makeRes();
     await handleAdminRequest(req, res);
-    expect(resBody(res).tokens[0].connection).toMatchObject(conn);
+    const { password: _pw, ...visible } = conn;
+    expect(resBody(res).tokens[0].connection).toEqual({ ...visible, password_set: true });
+    expect(res.end.mock.calls[0][0]).not.toContain('"p"'); // the password never leaves the server
   });
 
   // ── POST /admin/tokens ──────────────────────────────────────────────────────
@@ -133,8 +135,10 @@ describe("handleAdminRequest", () => {
     await handleAdminRequest(req, res);
     expect(res.writeHead).toHaveBeenCalledWith(201, expect.any(Object));
     const body = resBody(res);
-    expect(body.connection).toMatchObject(connection);
-    expect(writtenStore().tokens[0].connection).toMatchObject(connection);
+    expect(body.connection).toMatchObject({ host: "myhost", user: "myuser", password_set: true });
+    expect(body.connection.password).toBeUndefined();
+    expect(res.end.mock.calls[0][0]).not.toContain("secret");
+    expect(writtenStore().tokens[0].connection).toMatchObject(connection); // stored with the password
   });
 
   it("POST returns 400 when name is missing", async () => {
@@ -194,8 +198,39 @@ describe("handleAdminRequest", () => {
     await handleAdminRequest(req, res);
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
     const body = resBody(res);
-    expect(body.connection).toMatchObject(conn);
+    expect(body.connection).toMatchObject({ host: "newhost", database: "newdb", user: "u", password_set: true });
+    expect(body.connection.password).toBeUndefined();
     expect(writtenStore().tokens[0].connection).toMatchObject(conn);
+  });
+
+  it("PATCH keeps the stored password when the connection is sent without one", async () => {
+    const tokens = [
+      { id: 3, name: "tok", token_hash: "h", active: true, created_at: "x", last_used_at: null,
+        connection: { host: "h", database: "d", user: "u", password: "stored-secret" } },
+    ];
+    seedStore(makeStore(tokens, 4));
+    const req = makeReq("PATCH", "/admin/tokens/3", { body: JSON.stringify({ connection: { host: "other", database: "d", user: "u", password_set: true } }) });
+    const res = makeRes();
+    await handleAdminRequest(req, res);
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+    expect(resBody(res).connection).toMatchObject({ host: "other", password_set: true });
+    expect(writtenStore().tokens[0].connection).toEqual({ host: "other", database: "d", user: "u", password: "stored-secret" });
+  });
+
+  it("PATCH replaces the password when a new one is sent and clears it with an empty string", async () => {
+    const mk = () => [{ id: 3, name: "tok", token_hash: "h", active: true, created_at: "x", last_used_at: null,
+      connection: { host: "h", user: "u", password: "old" } }];
+    seedStore(makeStore(mk(), 4));
+    await handleAdminRequest(makeReq("PATCH", "/admin/tokens/3", { body: JSON.stringify({ connection: { host: "h", user: "u", password: "new" } }) }), makeRes());
+    expect(writtenStore().tokens[0].connection.password).toBe("new");
+
+    mockWriteFile.mockClear();
+    clearTokenStoreCache();
+    seedStore(makeStore(mk(), 4));
+    const res = makeRes();
+    await handleAdminRequest(makeReq("PATCH", "/admin/tokens/3", { body: JSON.stringify({ connection: { host: "h", user: "u", password: "" } }) }), res);
+    expect(writtenStore().tokens[0].connection.password).toBe("");
+    expect(resBody(res).connection.password_set).toBeUndefined();
   });
 
   it("PATCH clears a connection with null", async () => {

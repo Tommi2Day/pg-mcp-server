@@ -459,7 +459,35 @@ function sendJson(res, status, body) {
 }
 
 const isConnectionValue = (c) => c === null || (typeof c === "object" && !Array.isArray(c));
-const withoutHash = ({ token_hash: _h, ...rest }) => rest;
+
+/** Secret connection fields never leave the server: the API shows `<field>_set: true` instead. */
+const SECRET_FIELDS = ["password"];
+
+/** Entry (token or assignment) with the secrets of its connection replaced by `<field>_set` flags. */
+function maskConnection(entry) {
+  if (!entry?.connection) return entry;
+  const conn = { ...entry.connection };
+  for (const f of SECRET_FIELDS) {
+    if (conn[f]) { delete conn[f]; conn[`${f}_set`] = true; }
+  }
+  return { ...entry, connection: conn };
+}
+
+/**
+ * PATCH semantics for secrets: an omitted password keeps the stored one (the API never shows it, so a client
+ * editing the host cannot send it back); an explicit empty string clears it. `<field>_set` flags are ignored.
+ */
+function mergeSecrets(updated, existing) {
+  if (!updated || typeof updated !== "object") return updated || null;
+  const out = { ...updated };
+  for (const f of SECRET_FIELDS) {
+    delete out[`${f}_set`];
+    if (out[f] === undefined && existing?.[f]) out[f] = existing[f];
+  }
+  return out;
+}
+
+const withoutHash = ({ token_hash: _h, ...rest }) => maskConnection(rest);
 
 /** Validation error for POST /admin/tokens, or null. */
 function createTokenError({ name, connection, client_connection }) {
@@ -481,7 +509,7 @@ function updateTokenError(updates) {
   return null;
 }
 
-// GET /admin/tokens – list all tokens (token_hash excluded)
+// GET /admin/tokens – list all tokens (token_hash excluded, connection passwords masked)
 function listTokens(req, res) {
   sendJson(res, 200, { tokens: loadTokenStore().tokens.map(withoutHash) });
 }
@@ -519,7 +547,7 @@ async function updateToken(req, res, id) {
   if (!entry) return sendJson(res, 404, { error: "Not found" });
   if (updates.name     !== undefined) entry.name       = updates.name.trim();
   if (updates.active   !== undefined) entry.active     = !!updates.active;
-  if (updates.connection !== undefined) entry.connection = updates.connection || null;
+  if (updates.connection !== undefined) entry.connection = mergeSecrets(updates.connection, entry.connection);
   if (updates.client_connection !== undefined) {
     const clientMode = parseClientConnectionMode(updates.client_connection);
     if (clientMode === "none") delete entry.client_connection;
@@ -541,12 +569,11 @@ function deleteToken(req, res, id, onDelete) {
 }
 
 // ── Admin: OAuth assignments (/admin/assignments[/:id]) and /admin/me ────────
-const stripEnvSecret = (a) => (a.connection?.password ? { ...a, connection: { ...a.connection, password: undefined } } : a);
 
-// GET /admin/assignments – env assignments (read-only, password masked) followed by the stored ones
+// GET /admin/assignments – env assignments (read-only) followed by the stored ones; passwords are masked
 function listAssignments(req, res) {
-  const stored = (loadTokenStore().assignments ?? []).map(a => ({ ...a, source: "store" }));
-  sendJson(res, 200, { assignments: [...envAssignments().map(stripEnvSecret), ...stored] });
+  const stored = (loadTokenStore().assignments ?? []).map(a => ({ ...maskConnection(a), source: "store" }));
+  sendJson(res, 200, { assignments: [...envAssignments().map(maskConnection), ...stored] });
 }
 
 /** Picks the known assignment fields out of a request body. */
@@ -568,7 +595,7 @@ async function createAssignment(req, res) {
   store.next_assignment_id = entry.id + 1;
   store.assignments = [...(store.assignments ?? []), entry];
   saveTokenStore(store);
-  sendJson(res, 201, { ...entry, source: "store" });
+  sendJson(res, 201, { ...maskConnection(entry), source: "store" });
 }
 
 // PATCH /admin/assignments/:id – change connection, client_connection, admin, note (not group/user: delete and re-create)
@@ -582,11 +609,12 @@ async function updateAssignment(req, res, id) {
   const store = loadTokenStore();
   const entry = (store.assignments ?? []).find(a => a.id === id);
   if (!entry) return sendJson(res, 404, { error: "Not found" });
+  const previous = entry.connection; // Object.assign below replaces it; the stored password must survive a PATCH without one
   Object.assign(entry, pickAssignment(updates));
-  if (updates.connection !== undefined) entry.connection = updates.connection || null;
+  if (updates.connection !== undefined) entry.connection = mergeSecrets(updates.connection, previous);
   if (entry.client_connection === "none") delete entry.client_connection;
   saveTokenStore(store);
-  sendJson(res, 200, { ...entry, source: "store" });
+  sendJson(res, 200, { ...maskConnection(entry), source: "store" });
 }
 
 // DELETE /admin/assignments/:id

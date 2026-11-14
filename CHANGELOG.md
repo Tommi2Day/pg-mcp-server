@@ -51,10 +51,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - OAuth e-mail matching: an e-mail with `email_verified: false` is ignored, `OAUTH_REQUIRE_VERIFIED_EMAIL` demands
   `true`, and user assignments can name the immutable object id (`oid`/`sub`) instead of an e-mail
+- The admin API no longer returns connection passwords: tokens and assignments (list, create and update responses) show
+  `password_set: true` instead. A `PATCH` with a `connection` that omits `password` keeps the stored password, an empty
+  string clears it; the admin UI shows *unchanged* in the password field and only sends a password you type
 
 ### Changed
 - With OAuth configured, an empty `AUTH_TOKEN` no longer disables authentication
 - `[AUTH]` denials can be HTTP 403 (authenticated, but not assigned / not an admin)
+- Admin API: connection passwords are write-only (see Security); the admin UI's password field starts empty and keeps the
+  stored password unless a new one is typed. Scripts that edit a connection must omit `password` to keep it
+
+### Fixed
+- `admincli.sh`: `health` and the other table/JSON outputs crashed on systems whose default codepage cannot encode `✅`/`❌`
+  (Windows); the embedded Python now runs with UTF-8. Names and passwords containing `"` or `\` are JSON-escaped in
+  `add-token` (the request was invalid before)
 
 ## [1.0.0] - 2026-11-07
 

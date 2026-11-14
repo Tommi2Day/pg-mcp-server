@@ -65,7 +65,7 @@ Pool creation and all startup code live inside `if (isMain)`. This prevents side
 
 Tokens are stored in a JSON file (`TOKENS_FILE` env var, default `./tokens.json`). The file is read/written synchronously by `loadTokenStore()` / `saveTokenStore()` in `lib.js`. There is no database table for tokens — `initTokenTable` no longer exists.
 
-Each token record has: `id`, `name`, `token_hash` (SHA-256 hex), `created_at`, `last_used_at`, `active`, `connection` (object or null). The `token_hash` field is never returned by the admin API.
+Each token record has: `id`, `name`, `token_hash` (SHA-256 hex), `created_at`, `last_used_at`, `active`, `connection` (object or null). The `token_hash` field is never returned by the admin API, and neither is a connection password (tokens and assignments): `maskConnection` replaces it by `password_set: true`; a PATCH without `connection.password` keeps the stored one (`mergeSecrets`), an empty string clears it. The admin UI leaves an empty password field out.
 
 When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-256-GCM and stored as `enc:v1:<iv-hex>:<tag-hex>:<ciphertext-hex>`. `loadTokenStore()` decrypts transparently; `saveTokenStore()` encrypts before writing. `migrateTokenStore()` is called at startup to encrypt any plaintext passwords in an existing file.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { checkAuth, authenticateAdmin, handleAdminRequest, clearTokenStoreCache, hashToken, audit, send401 } from "../src/lib.js";
+import { checkAuth, authenticateAdmin, handleAdminRequest, clearTokenStoreCache, loadTokenStore, hashToken, audit, send401 } from "../src/lib.js";
 import { handleOAuthRoute } from "../src/oauth-routes.js";
 import { clearOAuthCache, createSession, getOAuthConfig } from "../src/oauth.js";
 import { makeReq, makeRes, resBody } from "./helpers.js";
@@ -185,7 +185,8 @@ describe("admin API: assignments", () => {
     const ids = body.assignments.map(a => a.id);
     expect(ids.slice(0, 1)).toEqual(["env-1"]);
     expect(ids).toContain(1);
-    expect(JSON.stringify(body)).not.toContain("pw");
+    expect(JSON.stringify(body)).not.toContain('"pw"');
+    expect(body.assignments[0].connection).toEqual({ host: "h", password_set: true });
     expect(body.assignments.find(a => a.id === 1).source).toBe("store");
   });
 
@@ -238,7 +239,25 @@ describe("admin API: assignments", () => {
     clearTokenStoreCache();
     mockReadFile.mockImplementation(() => written);
     const { body } = await call("GET", "/admin/assignments");
-    expect(body.assignments.find(a => a.group === "g").connection.password).toBe("topsecret");
+    // the API never returns the password, only that one is set; the store decrypts it for the server
+    expect(JSON.stringify(body)).not.toContain("topsecret");
+    expect(body.assignments.find(a => a.group === "g").connection).toEqual({ host: "h", password_set: true });
+    expect(loadTokenStore().assignments[0].connection.password).toBe("topsecret");
+  });
+
+  it("masks passwords in create and update responses and keeps the stored one on PATCH without password", async () => {
+    const created = await call("POST", "/admin/assignments", { group: "g", connection: { host: "h", user: "u", password: "pw1" } });
+    expect(created.status).toBe(201);
+    expect(JSON.stringify(created.body)).not.toContain("pw1");
+    expect(created.body.connection.password_set).toBe(true);
+
+    const kept = await call("PATCH", `/admin/assignments/${created.body.id}`, { connection: { host: "h2", user: "u", password_set: true } });
+    expect(kept.status).toBe(200);
+    expect(kept.body.connection).toEqual({ host: "h2", user: "u", password_set: true });
+    expect(store.assignments[0].connection).toEqual({ host: "h2", user: "u", password: "pw1" });
+
+    await call("PATCH", `/admin/assignments/${created.body.id}`, { connection: { host: "h2", user: "u", password: "pw2" } });
+    expect(store.assignments[0].connection.password).toBe("pw2");
   });
 
   it("GET /admin/me describes the caller and the OAuth setup", async () => {

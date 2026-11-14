@@ -145,6 +145,12 @@ describe.skipIf(!enabled)("admincli.sh against a real server (Keycloak + Postgre
     expect(list.out).toContain("yes");
     const shown = await cli(["show-token", tokenId]);
     expect(shown.out).toContain(`${HOST}:${PORT}/${DB}`);
+
+    // raw API: no password in any token response, only the flag
+    const raw = await (await fetch(`${base}/admin/tokens`, { headers: { Authorization: `Bearer ${ADMIN_TOKEN}` } })).text();
+    expect(raw).toContain('"password_set":true');
+    expect(raw).not.toContain('"password":');
+    expect(raw).not.toContain("token_hash");
   });
 
   it("disable-token / enable-token / delete-token take effect on the real server", async () => {
@@ -194,11 +200,19 @@ describe.skipIf(!enabled)("admincli.sh against a real server (Keycloak + Postgre
     const shown = await cli(["show-assignment", id]);
     expect(shown.out).toContain("DBAs");
     expect(shown.out).toContain(DB);
+    // the API never returns the password, it only says that one is stored
+    expect(shown.out).toContain('"password_set": true');
+    expect(shown.out).not.toMatch(/"password":/);
 
     // clearing the connection falls back to the server default (database "postgres")
     await cli(["clear-assignment-conn", id]);
     expect(await sql(await open(aliceToken), WHO)).not.toContain(DB);
     await cli(["set-assignment-conn", id, JSON.stringify({ host: HOST, port: PORT, database: DB, user: SUPER.user, password: SUPER.password, ssl: "false" })]);
+    expect(await sql(await open(aliceToken), WHO)).toContain(DB);
+    // an update without a password keeps the stored one: the connection still works after changing the target
+    await cli(["set-assignment-conn", id, JSON.stringify({ host: HOST, port: PORT, database: "postgres", user: SUPER.user, ssl: "false" })]);
+    expect(await sql(await open(aliceToken), WHO)).toContain("postgres");
+    await cli(["set-assignment-conn", id, JSON.stringify({ host: HOST, port: PORT, database: DB, user: SUPER.user, ssl: "false" })]);
     expect(await sql(await open(aliceToken), WHO)).toContain(DB);
 
     expect((await cli(["delete-assignment", id])).code).toBe(0);

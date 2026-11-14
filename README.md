@@ -819,7 +819,7 @@ Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage 
 - **OAuth assignments** (only with OAuth): map groups or e-mails to a default database connection, client-connection mode and the admin role; assignments from environment variables are listed read-only.
 - **Token list**: see all tokens with status (active/inactive), connection info, and last-used timestamp.
 - **Create token**: enter a name and optionally configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
-- **Edit token**: rename a token, toggle its active state, or update its database connection.
+- **Edit token**: rename a token, toggle its active state, or update its database connection (the password field stays empty and keeps the stored password unless you type a new one).
 - **Delete token**: permanently removes the token record and immediately revokes access.
 
 The session is stored in `sessionStorage` (cleared when the browser tab is closed).
@@ -924,6 +924,8 @@ Set `STORE_ENCRYPTION_KEY` to a passphrase to enable AES-256-GCM encryption of `
 export STORE_ENCRYPTION_KEY="my-secret-passphrase"
 ```
 
+The admin API never returns a connection password: responses (tokens and OAuth assignments, list, create and update) contain `"password_set": true` instead. On `PATCH`, a `connection` without `password` keeps the stored password (the admin UI's password field shows *unchanged*), a new value replaces it and an empty string clears it.
+
 Without this variable the passwords are stored as plaintext (acceptable for local/dev use). Changing the key requires re-saving every token (plaintext migration runs automatically on startup only when the key is set).
 
 ### Manage tokens with `admincli.sh`
@@ -984,7 +986,7 @@ Flags take precedence over the corresponding `PG_*` env vars. Omit all connectio
 ./scripts/admincli.sh add-assignment --email alice@example.com --database sandbox
 ./scripts/admincli.sh add-assignment --email '*@example.com'      # access with the default connection
 ./scripts/admincli.sh add-assignment --group grp-admin --admin    # may use the admin UI and API
-./scripts/admincli.sh show-assignment <id>          # one assignment as JSON (admin only: includes the stored connection password)
+./scripts/admincli.sh show-assignment <id>          # one assignment as JSON (passwords are never shown, only `password_set`)
 ./scripts/admincli.sh set-assignment-conn <id> '{"host":"h","database":"d"}'
 ./scripts/admincli.sh clear-assignment-conn <id>    # back to the server default connection
 ./scripts/admincli.sh set-assignment-client-conn <id> none|credentials|full

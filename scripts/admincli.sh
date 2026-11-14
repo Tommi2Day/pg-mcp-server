@@ -532,7 +532,7 @@ pg-mcp-server admin CLI
 
   OAuth assignment commands (OAUTH_ISSUER set; group / e-mail -> default connection):
     list-assignments             Environment (read-only) and stored assignments
-    show-assignment <id>         One assignment as JSON (admin only: includes the stored connection password)
+    show-assignment <id>         One assignment as JSON (passwords are never shown, only password_set)
     add-assignment               Create an assignment; the same connection options as add-token
                                  (only the given ones are sent, the server fills the rest from PG_*) plus:
                --group G         group name / object id from the groups claim, or
@@ -540,7 +540,7 @@ pg-mcp-server admin CLI
                [--admin]         the user may also use the admin UI and API
                [--note T]        free text
     delete-assignment <id>       Delete a stored assignment
-    set-assignment-conn <id> '<json>'    Replace the connection (omitted password is kept)
+    set-assignment-conn <id> '<json>'    Replace the connection (an omitted password is kept)
     clear-assignment-conn <id>   Back to the server default connection
     set-assignment-client-conn <id> none|credentials|full
     set-assignment-admin <id> true|false
@@ -562,7 +562,7 @@ pg-mcp-server admin CLI
     enable-token <id>            Re-enable a token
     disable-token <id>           Temporarily disable a token
     rename-token <id> <name>     Rename a token
-    set-conn     <id> '<json>'   Set a custom DB connection for a token
+    set-conn     <id> '<json>'   Set a custom DB connection for a token (an omitted password is kept)
                                  JSON: {"host":"h","port":5432,"database":"d","user":"u","password":"p","ssl":"false"}
     clear-conn   <id>            Clear per-token connection (falls back to admin DB)
     set-client-conn <id> none|credentials|full

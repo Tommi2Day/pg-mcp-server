@@ -69,7 +69,8 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
 - **`admin: true`**: the user may also use the admin UI/API.
 - **Where**: `OAUTH_ALLOWED_*`, `OAUTH_ADMIN_*` and `OAUTH_ASSIGNMENTS` (read-only in the admin UI, shown as
   *environment*) and the **admin UI** (section *OAuth assignments*, REST `/admin/assignments`; stored in the token
-  store file, passwords encrypted with `STORE_ENCRYPTION_KEY`). Changes apply immediately, also to open sessions of
+  store file, passwords encrypted with `STORE_ENCRYPTION_KEY` and never returned by the API: responses show `password_set`,
+  an update without a password keeps the stored one). Changes apply immediately, also to open sessions of
   the admin UI. Open MCP sessions keep their pool; the next session uses the new connection.
 
 ### Command line

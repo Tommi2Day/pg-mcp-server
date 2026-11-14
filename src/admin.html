@@ -1307,7 +1307,7 @@ function connSection(t) {
         </div>
         <div class="field">
           <label for="f-password">Password</label>
-          <input id="f-password" type="password" value="${x(c.password || '')}" placeholder="••••••••">
+          <input id="f-password" type="password" value="" autocomplete="new-password" placeholder="${c.password_set ? 'unchanged (leave empty to keep)' : '••••••••'}">
         </div>
         <div class="field full">
           <label for="f-ssl">SSL</label>
@@ -1357,16 +1357,19 @@ function readClientConn() {
   return document.getElementById('f-clientconn').value;
 }
 
+// The API never returns passwords: an empty field is left out, which keeps the stored password (PATCH)
 function readConn() {
   if (document.getElementById('f-use-default')?.checked) return null;
-  return {
+  const conn = {
     host:     document.getElementById('f-host').value.trim()     || 'localhost',
     port:     parseInt(document.getElementById('f-port').value)  || 5432,
     database: document.getElementById('f-database').value.trim() || 'postgres',
     user:     document.getElementById('f-user').value.trim()     || 'postgres',
-    password: document.getElementById('f-password').value,
     ssl:      document.getElementById('f-ssl').value             || 'false',
   };
+  const password = document.getElementById('f-password').value;
+  if (password) conn.password = password;
+  return conn;
 }
 
 // ── Modal helpers ─────────────────────────────────────────────────────────────

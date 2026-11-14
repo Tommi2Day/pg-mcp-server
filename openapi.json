@@ -63,7 +63,14 @@
             "type": "string"
           },
           "password": {
-            "type": "string"
+            "type": "string",
+            "writeOnly": true,
+            "description": "Never returned by the API. On PATCH an omitted password keeps the stored one; an empty string clears it."
+          },
+          "password_set": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Returned instead of the password: true when a password is stored."
           },
           "ssl": {
             "type": "string",
