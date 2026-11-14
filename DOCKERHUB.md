@@ -17,6 +17,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 
 **Multi-user & access control**
 - Bearer-token authentication with two levels: admin token (`AUTH_TOKEN`) and any number of client tokens
+- **Single sign-on with OAuth 2.0 / OpenID Connect** (Microsoft Entra ID, Keycloak, Okta, …) as an alternative: MCP clients send an access token, the admin UI offers SSO login. Deny by default — a user's **group or e-mail decides access and the default database connection**, configurable by environment variables and in the admin UI ([OAuth](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md))
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](https://github.com/Tommi2Day/pg-mcp-server#client-supplied-connections))
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
@@ -30,7 +31,8 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - Container runs as non-root (uid 1000), no privilege escalation, all capabilities dropped in Kubernetes
 
 **Audit logging**
-- Every tool call with token name, client IP and parameters; session start/stop with duration
+- Every tool call with token name (with OAuth: the **user's e-mail**, also visible as `application_name` in `pg_stat_activity`), client IP and parameters; session start/stop with duration
+- Dedicated `AUDIT` log category for SSO logins/logouts, MCP sessions and admin changes of authorized users
 - Failed logins with reason (unknown / disabled / invalid admin token) — presented tokens are never logged
 - Admin API actions ([example output](https://github.com/Tommi2Day/pg-mcp-server#logging)); `LOG_LEVEL` (`debug`/`info`/`warn`/`error`) — SQL text only at `debug`
 
@@ -46,12 +48,13 @@ Most PostgreSQL MCP servers are built for **one developer on one machine**: star
 | | Typical PostgreSQL MCP server | pg-mcp-server |
 |---|---|---|
 | Deployment | Local process per user (stdio) | Central service (Docker / Kubernetes) plus stdio |
-| Authentication | None — whoever can start it has access | Bearer tokens, admin vs. client, revocable at runtime |
-| Databases per instance | One connection string | One per token, managed centrally |
-| Credential handling | DB password in every client config | DB password stays on the server; clients only get a revocable token |
+| Authentication | None — whoever can start it has access | Bearer tokens (admin vs. client, revocable at runtime) **or** OAuth 2.0 / OIDC single sign-on (Entra ID, Keycloak, …) incl. admin UI |
+| Databases per instance | One connection string | One per token, or per **user / group** with SSO, managed centrally |
+| Credential handling | DB password in every client config | DB password stays on the server; clients only get a revocable token or sign in with their identity provider |
 | Read-only safety | Often SQL keyword checks or none | Enforced by PostgreSQL (`BEGIN READ ONLY`) |
-| Audit | Usually none | Who ran which tool from which IP, failed logins, sessions |
+| Audit | Usually none | Who (token or SSO user e-mail) ran which tool from which IP, failed logins, sessions |
 | Transport security | Plain local process | HTTPS, mTLS, verified TLS to PostgreSQL |
+| Tested against | Rarely more than unit tests | Real PostgreSQL, a mock OIDC server and Keycloak in Docker containers (CI) |
 
 Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived) (stdio only, a single read-only `query` tool), this server adds schema tools, a separate write tool, remote transport and everything above.
 
