@@ -6,16 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Keycloak as a real test and demo identity provider: compose profile `keycloak` (`docker compose --profile keycloak up -d
-  --wait keycloak`, console on port 8081) with the realm `tests/oidc/keycloak-realm.json` (users, groups, audience and
-  groups mappers; clients for the browser login, password grant and the pre-registered MCP client `pgmcp-mcp-client`,
-  authorization code + PKCE) and `examples/oauth-keycloak.env` for the full stack with SSO login in the admin UI.
-  `tests/oidc.integration.test.js` runs against the mock server or Keycloak (real login form, wrong password, verified
-  e-mails, MCP client login); the CI job runs both. docs/oauth.md: new sections *MCP clients* and *Trying it locally with Keycloak*
-- `OAUTH_RESOURCE_SCOPES` (Helm `oauth.resourceScopes`): scopes advertised to MCP clients in the protected-resource
-  metadata; default `<audience>/.default` as before (right for Entra ID), e.g. `openid profile email` for Keycloak
-
 ## [1.1.0] - 2026-11-14
 
 ### Added
@@ -33,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the user's e-mail is the `token` in `MCP`/`SESSION`/`ADMIN` lines and in the database `application_name`;
   `AUTH` `reason="oauth: …"`. Documented in `docs/logging.md`, Logstash pipeline updated
 - Helm: `oauth.*` values; OpenAPI: assignment and auth endpoints
+- Keycloak as a real test and demo identity provider: compose profile `keycloak` (`docker compose --profile keycloak up -d
+  --wait keycloak`, console on port 8081) with the realm `tests/oidc/keycloak-realm.json` (users, groups, audience and
+  groups mappers; clients for the browser login, password grant and the pre-registered MCP client `pgmcp-mcp-client`,
+  authorization code + PKCE) and `examples/oauth-keycloak.env` for the full stack with SSO login in the admin UI.
+  `tests/oidc.integration.test.js` runs against the mock server or Keycloak (real login form, wrong password, verified
+  e-mails, MCP client login); the CI job runs both. docs/oauth.md: new sections *MCP clients* and *Trying it locally with Keycloak*
+- `OAUTH_RESOURCE_SCOPES` (Helm `oauth.resourceScopes`): scopes advertised to MCP clients in the protected-resource
+  metadata; default `<audience>/.default` as before (right for Entra ID), e.g. `openid profile email` for Keycloak
 - Tests: `tests/skills.integration.test.js` serves every skill as prompt through a real MCP client, runs all SQL
   blocks of the skills read-only on a sample database and checks the skill workflows against real data (sample schema
   documentation, a real blocking chain, idle-in-transaction session, running statement, `pg_stat_statements`
