@@ -72,6 +72,21 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
   store file, passwords encrypted with `STORE_ENCRYPTION_KEY`). Changes apply immediately, also to open sessions of
   the admin UI. Open MCP sessions keep their pool; the next session uses the new connection.
 
+### Admin UI
+
+With OAuth configured the login page shows *Sign in with single sign-on* next to the token field. Admins manage the
+assignments in the section *OAuth assignments*; entries from environment variables are shown as *environment* and are
+read-only.
+
+![Admin UI: OAuth assignments](images/admin-assignments.png)
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>Login</b><br><img src="images/admin-login-sso.png" alt="Admin UI: login page with the single sign-on button"></td>
+    <td width="50%" valign="top"><b>New assignment</b><br><img src="images/admin-assignment-edit.png" alt="Admin UI: new assignment dialog"></td>
+  </tr>
+</table>
+
 ## MCP clients
 
 Nothing OAuth-specific is needed in the client configuration unless you want the client to log in by itself. There

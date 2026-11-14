@@ -828,6 +828,17 @@ The session is stored in `sessionStorage` (cleared when the browser tab is close
 
 ![Admin UI: token list](docs/images/admin-tokens.png)
 
+**Single sign-on and OAuth assignments** (only with [OAuth](docs/oauth.md)) — the login page offers the identity provider next to the token, and admins map groups or e-mails to a default database connection. Entries from environment variables are read-only:
+
+![Admin UI: OAuth assignments](docs/images/admin-assignments.png)
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>Login with single sign-on</b><br><img src="docs/images/admin-login-sso.png" alt="Admin UI: login page with the single sign-on button"></td>
+    <td width="50%" valign="top"><b>New assignment: group, admin role, client-supplied connection, default connection</b><br><img src="docs/images/admin-assignment-edit.png" alt="Admin UI: new assignment dialog"></td>
+  </tr>
+</table>
+
 <table>
   <tr>
     <td width="33%" valign="top"><b>Login</b><br><img src="docs/images/admin-login.png" alt="Admin UI: login"></td>
