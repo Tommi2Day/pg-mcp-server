@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests: `tests/postgres.integration.test.js` runs all tools and the OAuth routing (group/e-mail → database,
   `application_name`, client credentials, audit) against the real `postgres-test` container with sample databases;
   skipped unless `PG_TEST_HOST` is set
+- Tests: `tests/admincli.test.js` runs `admincli.sh` against a stub admin API (all token and assignment commands, escaping,
+  validation, error handling); `tests/admincli.integration.test.js` runs it against a real server process with real
+  PostgreSQL and Keycloak (needs `PG_TEST_HOST` and the Keycloak issuer)
 - Tests: `tests/oauth*.test.js` (fake provider) and `tests/oidc.integration.test.js` against the
   `oidc-test` container (`docker compose --profile oidc up -d oidc-test`, mock-oauth2-server), skipped unless
   `OIDC_TEST_ISSUER` is set

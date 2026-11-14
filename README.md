@@ -984,7 +984,7 @@ Flags take precedence over the corresponding `PG_*` env vars. Omit all connectio
 ./scripts/admincli.sh add-assignment --email alice@example.com --database sandbox
 ./scripts/admincli.sh add-assignment --email '*@example.com'      # access with the default connection
 ./scripts/admincli.sh add-assignment --group grp-admin --admin    # may use the admin UI and API
-./scripts/admincli.sh show-assignment <id>          # one assignment as JSON (passwords are never shown)
+./scripts/admincli.sh show-assignment <id>          # one assignment as JSON (admin only: includes the stored connection password)
 ./scripts/admincli.sh set-assignment-conn <id> '{"host":"h","database":"d"}'
 ./scripts/admincli.sh clear-assignment-conn <id>    # back to the server default connection
 ./scripts/admincli.sh set-assignment-client-conn <id> none|credentials|full

@@ -27,6 +27,8 @@
 #   ./admincli.sh set-client-conn <id> none|credentials|full   # client may send X-Pg-* headers
 #   ./admincli.sh health                        # server health check
 set -eo pipefail
+# The embedded Python prints ✅/❌: force UTF-8 (the Windows default codepage cannot encode them)
+export PYTHONIOENCODING=utf-8
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 # Load .env if present
@@ -530,7 +532,7 @@ pg-mcp-server admin CLI
 
   OAuth assignment commands (OAUTH_ISSUER set; group / e-mail -> default connection):
     list-assignments             Environment (read-only) and stored assignments
-    show-assignment <id>         One assignment as JSON (passwords are never shown)
+    show-assignment <id>         One assignment as JSON (admin only: includes the stored connection password)
     add-assignment               Create an assignment; the same connection options as add-token
                                  (only the given ones are sent, the server fills the rest from PG_*) plus:
                --group G         group name / object id from the groups claim, or

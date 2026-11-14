@@ -63,9 +63,11 @@ jobs:
           PG_TEST_PORT: 5433
           OIDC_TEST_ISSUER: http://localhost:8080/default
 
-      - name: OIDC integration tests against Keycloak (real login form)
-        run: npx vitest run tests/oidc.integration.test.js
+      - name: OIDC integration tests against Keycloak (real login form) and admincli.sh against a real server
+        run: npx vitest run tests/oidc.integration.test.js tests/admincli.integration.test.js
         env:
+          PG_TEST_HOST: localhost
+          PG_TEST_PORT: 5433
           OIDC_TEST_ISSUER: http://localhost:8081/realms/pg-mcp
 
       - name: Container logs
