@@ -77,6 +77,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
+| `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …); more `OAUTH_*` variables in [docs/oauth.md](docs/oauth.md) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
@@ -657,7 +658,30 @@ Token values are stored as SHA-256 hashes in a local JSON file (`TOKENS_FILE`); 
 
 Each file token can optionally have its own PostgreSQL connection. When a token has no custom connection, it uses the server's default connection (`PG_HOST` / `PG_DATABASE` / … env vars).
 
-No `AUTH_TOKEN` set → auth is completely disabled (local/dev only). The admin UI still works but does not require a token.
+No `AUTH_TOKEN` set (and no OAuth) → auth is completely disabled (local/dev only). The admin UI still works but does not require a token.
+
+### OAuth 2.0 / OpenID Connect (Microsoft Entra ID)
+
+Alternatively (or additionally) users authenticate with an identity provider — primarily Microsoft Entra ID, also
+Keycloak, Okta and other OIDC providers. Set `OAUTH_ISSUER`; MCP clients then send an OAuth access token (JWT) as bearer
+token and the admin UI offers *Sign in with single sign-on*.
+
+- **Authorization by assignment (deny by default):** a user may use the server if their e-mail or one of their groups is
+  assigned — via `OAUTH_ALLOWED_GROUPS`, `OAUTH_ALLOWED_USERS`, `OAUTH_ADMIN_GROUPS`, `OAUTH_ADMIN_USERS`,
+  `OAUTH_ASSIGNMENTS` or in the admin UI (*OAuth assignments*).
+- **Default connection by group or e-mail:** an assignment can carry a PostgreSQL connection that the user gets
+  when the client sends no `X-Pg-*` headers (exact e-mail beats `*@domain` beats group).
+- **Audit:** `[AUDIT]` log lines for logins, MCP sessions and admin changes; the e-mail replaces the token name in all log
+  lines and in the database `application_name`.
+
+```bash
+OAUTH_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
+OAUTH_CLIENT_ID=<app-id>  OAUTH_CLIENT_SECRET=<secret>  OAUTH_AUDIENCE=api://<app-id>
+OAUTH_PUBLIC_URL=https://mcp.example.com
+OAUTH_ADMIN_GROUPS=<admin-group-object-id>  OAUTH_ALLOWED_GROUPS=<user-group-object-id>
+```
+
+Full reference, Entra setup steps and security notes: [docs/oauth.md](docs/oauth.md).
 
 ### Client-supplied connections
 
@@ -751,7 +775,8 @@ Rules and safeguards:
 
 Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage tokens without using the command line or curl.
 
-- **Login**: enter the server URL and the `AUTH_TOKEN` value. Leave the token field empty if auth is disabled.
+- **Login**: enter the server URL and the `AUTH_TOKEN` value. Leave the token field empty if auth is disabled. With OAuth configured, *Sign in with single sign-on* logs in members of an admin group/user.
+- **OAuth assignments** (only with OAuth): map groups or e-mails to a default database connection, client-connection mode and the admin role; assignments from environment variables are listed read-only.
 - **Token list**: see all tokens with status (active/inactive), connection info, and last-used timestamp.
 - **Create token**: enter a name and optionally configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
 - **Edit token**: rename a token, toggle its active state, or update its database connection.
@@ -997,7 +1022,8 @@ With `LOG_LEVEL=debug` the full SQL text is logged:
 |----------|-------|------|
 | `[MCP]` | info / error | MCP tool call (success and error); `action="get_prompt"` with the prompt name for `prompts/get`. Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, `"stdio"` in stdio mode, or the file token's name. `params` is omitted for tools with no arguments. The `sql` parameter is replaced by its length unless `LOG_LEVEL=debug`. |
 | `[SESSION]` | info | HTTP MCP session start and stop (with duration). Stop is logged when the client ends the session (`DELETE /mcp`) or the transport closes; clients that just disappear produce no stop line. |
-| `[AUTH]` | warn | Rejected request (401). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name). The presented token is never logged. |
+| `[AUTH]` | warn | Rejected request (401/403). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name), or `oauth: …` (expired token, wrong audience, no assignment, not an admin, …). The presented token is never logged. |
+| `[AUDIT]` | info | OAuth users: `login` / `logout` of the admin UI, `session_start` of MCP sessions, changing admin API calls — with e-mail and subject ([docs/oauth.md](docs/oauth.md#audit)). |
 | `[ADMIN]` | info / error | Admin API request. `token="admin"` when authenticated with `AUTH_TOKEN`, `token="anonymous"` when auth is disabled. Stack traces of admin errors at `debug`. |
 | `[STORE]` | info / warn | Password migration and missing `STORE_ENCRYPTION_KEY`. |
 | `[DB]` | error | Idle pool error (e.g. dropped connection) from the default or a per-token pool. |

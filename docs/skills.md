@@ -121,5 +121,8 @@ without write privileges — see [Per-token connection](../README.md#authenticat
    `description` (what it does and when to use it, max. 1024 characters, one line), followed by the workflow.
 2. Optional prompt arguments: add an entry to `PROMPT_ARGUMENTS` in `src/prompts.js`.
 3. `npm test` checks that every shipped skill parses and matches its folder name.
+4. SQL in a skill (` ```sql ` block, one statement, `$1` = schema) is executed against a real database by
+   `tests/skills.integration.test.js` — no extra test needed to prove it is valid, read-only and PostgreSQL 13+ compatible:
+   `docker compose up -d postgres-test` and `PG_TEST_HOST=localhost PG_TEST_PORT=5433 npx vitest run tests/skills.integration.test.js`.
 
 The server reads the skills once at startup; restart it after changes.

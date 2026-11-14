@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OAuth 2.0 / OpenID Connect** as an alternative to bearer tokens, primarily for Microsoft Entra ID (any OIDC provider
+  works): `OAUTH_ISSUER` switches it on. MCP clients send an access token (JWT: signature via JWKS, issuer, audience,
+  lifetime checked), the admin UI offers single sign-on (authorization code + PKCE, `HttpOnly` session cookie, CSRF
+  header for changes). `AUTH_TOKEN` and file tokens keep working. See [docs/oauth.md](docs/oauth.md)
+- **Assignments** (deny by default): group or e-mail (`*@domain`) → access, **default database connection**,
+  `client_connection` mode and admin role. Configured by `OAUTH_ALLOWED_GROUPS`, `OAUTH_ALLOWED_USERS`,
+  `OAUTH_ADMIN_GROUPS`, `OAUTH_ADMIN_USERS`, `OAUTH_ASSIGNMENTS` (read-only) and in the admin UI (*OAuth assignments*) /
+  REST `/admin/assignments` (stored in the token store, passwords encrypted like token passwords)
+- `GET /admin/me`, `GET /auth/status|login|callback`, `POST /auth/logout`, `GET /.well-known/oauth-protected-resource`
+  (RFC 9728; `WWW-Authenticate` of the 401 carries `resource_metadata`)
+- Audit: new log category `AUDIT` (login/logout, MCP `session_start`, changing admin calls) with e-mail and subject;
+  the user's e-mail is the `token` in `MCP`/`SESSION`/`ADMIN` lines and in the database `application_name`;
+  `AUTH` `reason="oauth: …"`. Documented in `docs/logging.md`, Logstash pipeline updated
+- Helm: `oauth.*` values; OpenAPI: assignment and auth endpoints
+- Tests: `tests/skills.integration.test.js` serves every skill as prompt through a real MCP client, runs all SQL
+  blocks of the skills read-only on a sample database and checks the skill workflows against real data (sample schema
+  documentation, a real blocking chain, idle-in-transaction session, running statement, `pg_stat_statements`
+  statistics and plan changes). The compose `postgres-test` service now preloads `pg_stat_statements`
+- Tests: `tests/postgres.integration.test.js` runs all tools and the OAuth routing (group/e-mail → database,
+  `application_name`, client credentials, audit) against the real `postgres-test` container with sample databases;
+  skipped unless `PG_TEST_HOST` is set
+- Tests: `tests/oauth*.test.js` (fake provider) and `tests/oidc.integration.test.js` against the
+  `oidc-test` container (`docker compose --profile oidc up -d oidc-test`, mock-oauth2-server), skipped unless
+  `OIDC_TEST_ISSUER` is set
+
+### Security
+- OAuth e-mail matching: an e-mail with `email_verified: false` is ignored, `OAUTH_REQUIRE_VERIFIED_EMAIL` demands
+  `true`, and user assignments can name the immutable object id (`oid`/`sub`) instead of an e-mail
+
+### Changed
+- With OAuth configured, an empty `AUTH_TOKEN` no longer disables authentication
+- `[AUTH]` denials can be HTTP 403 (authenticated, but not assigned / not an admin)
+
 ## [1.0.0] - 2026-11-07
 
 First complete version: MCP tools, performance analysis, guided DBA workflows (prompts / skills), multi-user

@@ -58,6 +58,9 @@ vi.mock("../src/lib.js", async (importOriginal) => {
     getAuthToken: vi.fn(() => ""),
     checkAuth: vi.fn().mockResolvedValue({ ok: true, name: "admin", connection: null, clientConnection: "none" }),
     checkAdminAuth: vi.fn(() => true),
+    authenticateAdmin: vi.fn().mockResolvedValue({ ok: true, name: "admin", method: "token" }),
+    audit: vi.fn(),
+    allAssignments: vi.fn(() => []),
     handleAdminRequest: vi.fn().mockResolvedValue(undefined),
     log: vi.fn(),
     isLogEnabled: vi.fn(() => false),
@@ -67,7 +70,7 @@ vi.mock("../src/lib.js", async (importOriginal) => {
 });
 
 import { handleRequest, createMcpServer, getPool, applicationName, poolCache, sessions } from "../src/index.js";
-import { checkAuth, handleAdminRequest, log, isLogEnabled } from "../src/lib.js";
+import { checkAuth, handleAdminRequest, authenticateAdmin, audit, log, isLogEnabled } from "../src/lib.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 // ── handleRequest ─────────────────────────────────────────────────────────────
@@ -119,6 +122,53 @@ describe("handleRequest", () => {
     const res = makeRes();
     await handleRequest(req, res);
     expect(vi.mocked(handleAdminRequest)).toHaveBeenCalledWith(req, res, expect.any(Object));
+  });
+
+  it("/admin/assignments and /admin/me delegate to handleAdminRequest", async () => {
+    for (const url of ["/admin/assignments", "/admin/assignments/3", "/admin/me"]) {
+      const req = makeReq("GET", url);
+      await handleRequest(req, makeRes());
+      expect(vi.mocked(handleAdminRequest)).toHaveBeenLastCalledWith(req, expect.anything(), expect.any(Object));
+    }
+  });
+
+  it("GET /auth/status is answered by the OAuth routes (public, no admin auth)", async () => {
+    const res = makeRes();
+    await handleRequest(makeReq("GET", "/auth/status"), res);
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({ enabled: false });
+    expect(vi.mocked(handleAdminRequest)).not.toHaveBeenCalled();
+  });
+
+  it("GET /info requires admin authentication", async () => {
+    vi.mocked(authenticateAdmin).mockResolvedValueOnce({ ok: false });
+    const res = makeRes();
+    await handleRequest(makeReq("GET", "/info"), res);
+    expect(res.end).not.toHaveBeenCalled();
+    await handleRequest(makeReq("GET", "/info"), res);
+    expect(JSON.parse(res.end.mock.calls[0][0])).toHaveProperty("version");
+  });
+
+  it("audits the start of an MCP session of an OAuth user", async () => {
+    vi.mocked(checkAuth).mockResolvedValueOnce({
+      ok: true, name: "alice@x.com", connection: null, clientConnection: "none",
+      identity: { sub: "oid-1", email: "alice@x.com", assignment: "7", admin: false },
+    });
+    vi.mocked(audit).mockClear();
+    await handleRequest(makeReq("POST", "/mcp"), makeRes());
+    vi.mocked(StreamableHTTPServerTransport).mock.calls.at(-1)[0].onsessioninitialized("sess-oauth");
+    expect(audit).toHaveBeenCalledWith({
+      user: "alice@x.com", sub: "oid-1", action: "session_start", session: "sess-oauth", via: "oauth", ip: "10.0.0.1", assignment: "7", admin: false,
+    });
+    sessions.delete("sess-oauth");
+  });
+
+  it("does not audit token sessions", async () => {
+    vi.mocked(audit).mockClear();
+    await handleRequest(makeReq("POST", "/mcp"), makeRes());
+    vi.mocked(StreamableHTTPServerTransport).mock.calls.at(-1)[0].onsessioninitialized("sess-plain");
+    expect(audit).not.toHaveBeenCalled();
+    sessions.delete("sess-plain");
   });
 
   it("/mcp does not call transport when checkAuth returns { ok: false }", async () => {

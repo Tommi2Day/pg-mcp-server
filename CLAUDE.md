@@ -47,6 +47,7 @@ helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server -n mcp -f my-va
 
 - **`lib.js`** — all pure, independently testable logic. No MCP SDK imports. Exports: `log`, `getLogLevel`, `isLogEnabled`, `getClientIp`, `buildPgSsl`, `getAuthToken`, `hashToken`, `extractBearer`, `send401`, `readBody`, `checkAdminAuth`, `checkAuth`, `handleAdminRequest`, `loadTokenStore`, `saveTokenStore`, `getTokensFile`, `migrateTokenStore`.
 - **`index.js`** — MCP server factory, HTTP router, startup. Imports only from `lib.js` and external packages. Exports `createMcpServer`, `handleRequest`, `getPool` for tests.
+- **`oauth.js`** — OAuth 2.0 / OIDC, pure (no MCP SDK, no `lib.js` import; `lib.js` imports it and logs): `getOAuthConfig` (`OAUTH_*`, null = off), JWT validation (`verifyJwt`: JWKS/discovery cache, RS/PS/ES only), `identityFromClaims`, assignments (`envAssignments`, `resolveAccess`, `assignmentError`), browser login (`startLogin`/`finishLogin` PKCE, in-memory `sessions`, cookie helpers). **`oauth-routes.js`** serves `/auth/*` and `/.well-known/oauth-protected-resource` (imports `lib.js` + `oauth.js`). Docs: `docs/oauth.md`
 - **`branding.js`** — admin UI branding: `loadAdminBranding` (`ADMIN_THEME_CSS`, `ADMIN_LOGO` → data URI or URL), `renderAdminHtml` fills `__SERVER_NAME__` (escaped), `<!--theme-->` and the `<!--logo-->…<!--/logo-->` markers. All colors in `admin.html` are `:root` CSS variables — don't add hard-coded colors; example in `examples/admin-theme/`.
 - **`prompts.js`** — MCP prompts from `skills/<name>/SKILL.md` (Agent Skills format, single source for prompts and skills): `parseSkill` (frontmatter `name`/`description` + body), `loadPrompts` (loaded once into `PROMPTS` in `index.js`), `buildPromptResult` (body + `## Input` section). Prompt arguments live in `PROMPT_ARGUMENTS`, not in the frontmatter. No MCP SDK imports.
 - **`admin.html`** — single-file SPA served at `GET /admin`. No external dependencies. Contains `__SERVER_NAME__` placeholders replaced at startup by `index.js` with the `MCP_SERVER_NAME` env var (default `pg-mcp-server`). Rendered once by `renderAdminHtml` (`branding.js`) and cached as a `Buffer` in `cachedAdminHtml`.
@@ -75,6 +76,10 @@ When `STORE_ENCRYPTION_KEY` is set, `connection.password` is encrypted with AES-
 - `checkAuth(req, res)` returns `{ ok, name, connection, clientConnection }` — mocks must return this shape
 - `checkAdminAuth(req, res)` returns `true` when `AUTH_TOKEN` is not set (mirrors `checkAuth` behaviour)
 - All token comparisons use `timingSafeEqual()` (double-SHA-256 + `crypto.timingSafeEqual`) to prevent timing attacks
+
+### OAuth (alternative auth)
+
+`OAUTH_ISSUER` enables it. `checkAuth`: `AUTH_TOKEN` → JWT (`looksLikeJwt`, then `checkOAuthBearer`) → file token; with OAuth configured and no `AUTH_TOKEN`, auth is **not** disabled. Authorization is deny-by-default: `resolveAccess(identity, allAssignments())` (env assignments first, then `assignments` in the token store file; `next_assignment_id`; passwords encrypted via `mapStoredPasswords`). The result's `connection`/`clientConnection` feed `getPool`/`applyClientConnection` exactly like a token's; `name` is the user's e-mail (sanitized by `safeLogValue`) and `identity` is set (used for the `AUDIT` line in `trackSession`). `authenticateAdmin(req, res)` (async, → `{ ok, name, method }`) replaces the sync `checkAdminAuth` in `handleAdminRequest`/`serveInfo`; the sync function stays for the non-OAuth path. Cookie sessions re-resolve access on every request and need `X-Requested-With` on non-GET (CSRF). Assignment REST API: `/admin/assignments[/:id]`, `/admin/me`; env assignments are read-only (`env-N` ids). Tests: `oauth.test.js`, `oauth-auth.test.js` (fake IdP in `oidc-helpers.js`), `oidc.integration.test.js` (needs `docker compose --profile oidc up -d oidc-test` and `OIDC_TEST_ISSUER`).
 
 ### Per-token connection routing
 
@@ -164,6 +169,9 @@ Two services on `mcp-net`: `postgres-test` (port 5433, `pg_isready` healthcheck)
 ## Tests
 
 Test files in `tests/` (plus `branding.test.js`, `prompts.test.js` — real `skills/` dir and temp dirs, `lib.js` mocked):
+- `oauth.test.js`, `oauth-auth.test.js`, `oidc.integration.test.js` — OAuth (see above)
+- `postgres.integration.test.js` — real PostgreSQL, no mocks: all 12 tools through a real MCP client (in-memory transport) on sample databases, plus HTTP + OAuth end to end (group/e-mail → database, `application_name`, X-Pg-* credentials, AUDIT). Skipped unless `PG_TEST_HOST` is set: `docker compose up -d postgres-test` then `PG_TEST_HOST=localhost PG_TEST_PORT=5433 npx vitest run tests/postgres.integration.test.js` (creates/drops databases `pgmcp_sales`, `pgmcp_hr` and role `pgmcp_reader`). - `skills.integration.test.js` — skills on real PostgreSQL (needs `PG_TEST_HOST`; `postgres-test` preloads `pg_stat_statements` via compose `command`): every prompt via a real MCP client, every ```sql block of every `SKILL.md` through `query` (a new skill with SQL is covered automatically), `pg-document` output on a sample schema, `pg-locks-waits`/`pg-top-sessions` on a real blocking chain, `pg-top-sql`/`pg-sql-tuning` on real statistics. Creates/drops database `pgmcp_skills`
+  Full run: add `OIDC_TEST_ISSUER=http://localhost:8080/default` with the `oidc` profile up
 - `lib.test.js` — unit tests for all `lib.js` exports; mocks `node:fs` for token store tests
 - `admin.test.js` — `handleAdminRequest` CRUD; mocks `node:fs` (`readFileSync`/`writeFileSync`) via `vi.hoisted`
 - `index.test.js` — `handleRequest` routing, `getPool` caching, `createMcpServer` ListTools + CallTool (all 12 tools) + ListPrompts/GetPrompt
