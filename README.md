@@ -79,7 +79,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty = auth disabled, unless `OAUTH_ISSUER` is set) |
 | `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …): issuer URL, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0`. With OAuth on and no `AUTH_TOKEN`, auth is **not** disabled ([details](docs/oauth.md)) |
 | `OAUTH_AUDIENCE` | `OAUTH_CLIENT_ID` | Accepted `aud` values of access tokens, comma separated (Entra: `api://<app-id>`) |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | – | App registration for the admin UI single sign-on (secret omitted for public clients; PKCE is always used) |
@@ -91,7 +91,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `OAUTH_ASSIGNMENTS` | – | JSON array: group or user → default connection, `client_connection`, `admin` (also editable in the admin UI) |
 | `OAUTH_JWKS_URI`, `OAUTH_AUTHORIZATION_ENDPOINT`, `OAUTH_TOKEN_ENDPOINT` | discovery | Override the provider's discovery document |
 | `OAUTH_ALLOWED_ISSUERS`, `OAUTH_SCOPES`, `OAUTH_REDIRECT_URI`, `OAUTH_REQUIRE_VERIFIED_EMAIL`, `OAUTH_SESSION_TTL` | see docs | Further options: [oauth.md](docs/oauth.md) |
-| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
+| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token name>`, with OAuth `<name>:<e-mail>`) |
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
@@ -473,6 +473,31 @@ helm install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server \
   --set postgresql.password=secret \
   --set auth.token=$(openssl rand -hex 32)
 ```
+
+### With OAuth 2.0 / OpenID Connect
+
+```bash
+helm upgrade --install pg-mcp oci://ghcr.io/tommi2day/charts/pg-mcp-server -n mcp -f my-values.yaml
+```
+
+```yaml
+# my-values.yaml (the client secret is stored in a Secret; oauth.existingSecret with key "client-secret" works too)
+oauth:
+  enabled: true
+  issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+  clientId: <app-id>
+  clientSecret: <secret>
+  audience: api://<app-id>
+  publicUrl: https://mcp.example.com
+  # resourceScopes: "openid profile email"   # providers other than Entra ID (Keycloak)
+  adminGroups: "<admin-group-object-id>"
+  allowedGroups: "<user-group-object-id>"
+  assignments:
+    - group: "<group-object-id>"
+      connection: { host: reporting-db, database: reports, user: ro }
+```
+
+All `oauth.*` values are described in `values.yaml` and [docs/oauth.md](docs/oauth.md).
 
 ### With HTTPS
 

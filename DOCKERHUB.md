@@ -82,6 +82,7 @@ docker run -d --name pg-mcp-server \
 - `pg-mcp-data` keeps the token store (`/data/tokens.json`), `pg-mcp-certs` keeps TLS certificates (`/certs`)
 - The container runs as uid 1000; mounted volumes must be writable by that user
 - HTTPS: set `TLS_ENABLED=true` — a self-signed certificate is generated in `/certs` if none is mounted
+- Single sign-on instead of (or next to) tokens: add `-e OAUTH_ISSUER=… -e OAUTH_AUDIENCE=… -e OAUTH_CLIENT_ID=… -e OAUTH_CLIENT_SECRET=… -e OAUTH_PUBLIC_URL=https://mcp.example.com -e OAUTH_ADMIN_GROUPS=… -e OAUTH_ALLOWED_GROUPS=…` ([OAuth guide](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md))
 
 Connect a client (e.g. Claude Code):
 
@@ -106,7 +107,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty = auth disabled, unless `OAUTH_ISSUER` is set) |
 | `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …): issuer URL, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0`. With OAuth on and no `AUTH_TOKEN`, auth is **not** disabled ([details](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md)) |
 | `OAUTH_AUDIENCE` | `OAUTH_CLIENT_ID` | Accepted `aud` values of access tokens, comma separated (Entra: `api://<app-id>`) |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | – | App registration for the admin UI single sign-on (secret omitted for public clients; PKCE is always used) |
@@ -118,7 +119,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 | `OAUTH_ASSIGNMENTS` | – | JSON array: group or user → default connection, `client_connection`, `admin` (also editable in the admin UI) |
 | `OAUTH_JWKS_URI`, `OAUTH_AUTHORIZATION_ENDPOINT`, `OAUTH_TOKEN_ENDPOINT` | discovery | Override the provider's discovery document |
 | `OAUTH_ALLOWED_ISSUERS`, `OAUTH_SCOPES`, `OAUTH_REDIRECT_URI`, `OAUTH_REQUIRE_VERIFIED_EMAIL`, `OAUTH_SESSION_TTL` | see docs | Further options: [oauth.md](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md) |
-| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
+| `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token name>`, with OAuth `<name>:<e-mail>`) |
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
