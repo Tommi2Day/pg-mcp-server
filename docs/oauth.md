@@ -72,6 +72,18 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
   store file, passwords encrypted with `STORE_ENCRYPTION_KEY`). Changes apply immediately, also to open sessions of
   the admin UI. Open MCP sessions keep their pool; the next session uses the new connection.
 
+### Command line
+
+`scripts/admincli.sh` manages the assignments through the same REST API (`AUTH_TOKEN`, or the access token of an admin user):
+
+```bash
+./scripts/admincli.sh add-assignment --group grp-dba --host dba-db --database prod --user dba --password secret
+./scripts/admincli.sh add-assignment --email alice@example.com --client-connection credentials
+./scripts/admincli.sh add-assignment --group grp-admin --admin
+./scripts/admincli.sh list-assignments        # also: show-/delete-assignment, set-/clear-assignment-conn,
+                                              #       set-assignment-client-conn, set-assignment-admin, whoami
+```
+
 ### Admin UI
 
 With OAuth configured the login page shows *Sign in with single sign-on* next to the token field. Admins manage the

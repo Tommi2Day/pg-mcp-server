@@ -20,7 +20,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - **Single sign-on with OAuth 2.0 / OpenID Connect** (Microsoft Entra ID, Keycloak, Okta, …) as an alternative: MCP clients send an access token, the admin UI offers SSO login. Deny by default — a user's **group or e-mail decides access and the default database connection**, configurable by environment variables and in the admin UI ([OAuth](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md))
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](https://github.com/Tommi2Day/pg-mcp-server#client-supplied-connections))
-- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
+- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh` (also for the OAuth assignments)
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
 

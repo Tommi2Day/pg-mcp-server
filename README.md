@@ -23,7 +23,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - **Single sign-on with OAuth 2.0 / OpenID Connect** (Microsoft Entra ID, Keycloak, Okta, …) as an alternative: MCP clients send an access token, the admin UI offers SSO login. Deny by default — a user's **group or e-mail decides access and the default database connection**, configurable by environment variables and in the admin UI ([OAuth](docs/oauth.md))
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](#client-supplied-connections))
-- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh`
+- Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh` (also for the OAuth assignments)
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
 
@@ -974,6 +974,28 @@ PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=u PG_PASSWORD=p \
 
 `add-token` connection flags: `--host`, `--port`, `--database`, `--user`, `--password`, `--ssl`.  
 Flags take precedence over the corresponding `PG_*` env vars. Omit all connection arguments to use the server's default admin connection.
+
+**OAuth assignments** (with [OAuth](docs/oauth.md) configured; the same operations as the admin UI section *OAuth assignments*):
+
+```bash
+./scripts/admincli.sh whoami                        # who the server thinks you are, OAuth issuer and groups claim
+./scripts/admincli.sh list-assignments              # environment (read-only) and stored assignments
+./scripts/admincli.sh add-assignment --group grp-dba   --host dba-db --database prod --user dba --password p --client-connection credentials
+./scripts/admincli.sh add-assignment --email alice@example.com --database sandbox
+./scripts/admincli.sh add-assignment --email '*@example.com'      # access with the default connection
+./scripts/admincli.sh add-assignment --group grp-admin --admin    # may use the admin UI and API
+./scripts/admincli.sh show-assignment <id>          # one assignment as JSON (passwords are never shown)
+./scripts/admincli.sh set-assignment-conn <id> '{"host":"h","database":"d"}'
+./scripts/admincli.sh clear-assignment-conn <id>    # back to the server default connection
+./scripts/admincli.sh set-assignment-client-conn <id> none|credentials|full
+./scripts/admincli.sh set-assignment-admin <id> true|false
+./scripts/admincli.sh delete-assignment <id>
+```
+
+`add-assignment` takes either `--group` (name or object id from the groups claim) or `--email` (e-mail, object id or `*@domain`),
+the connection flags of `add-token` — only the given ones are sent, the server fills the rest from `PG_*` — plus `--admin`,
+`--client-connection` and `--note`. `ADMIN_TOKEN` is accepted as an alias of `AUTH_TOKEN`; with OAuth the access token (JWT) of an
+admin user works as `AUTH_TOKEN`, too.
 
 ### Validate a token with `test_token.sh`
 

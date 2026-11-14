@@ -33,6 +33,7 @@ docker compose down
 
 # Token management
 ./scripts/admincli.sh list-tokens|add-token|delete-token|enable-token|disable-token|rename-token|set-conn|clear-conn
+./scripts/admincli.sh whoami|list-assignments|show-assignment|add-assignment|delete-assignment|set-assignment-conn|clear-assignment-conn|set-assignment-client-conn|set-assignment-admin   # OAuth assignments (/admin/assignments, /admin/me)
 ./scripts/test_token.sh <token> [schema]   # validate token + list tables
 
 # Helm

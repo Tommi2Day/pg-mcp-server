@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the user's e-mail is the `token` in `MCP`/`SESSION`/`ADMIN` lines and in the database `application_name`;
   `AUTH` `reason="oauth: …"`. Documented in `docs/logging.md`, Logstash pipeline updated
 - Helm: `oauth.*` values; OpenAPI: assignment and auth endpoints
+- `admincli.sh`: `whoami`, `list-assignments`, `show-assignment`, `add-assignment` (`--group`/`--email`, connection flags, `--admin`,
+  `--client-connection`, `--note`), `delete-assignment`, `set-assignment-conn`, `clear-assignment-conn`,
+  `set-assignment-client-conn`, `set-assignment-admin`; `ADMIN_TOKEN` accepted as alias of `AUTH_TOKEN`
 - Keycloak as a real test and demo identity provider: compose profile `keycloak` (`docker compose --profile keycloak up -d
   --wait keycloak`, console on port 8081) with the realm `tests/oidc/keycloak-realm.json` (users, groups, audience and
   groups mappers; clients for the browser login, password grant and the pre-registered MCP client `pgmcp-mcp-client`,

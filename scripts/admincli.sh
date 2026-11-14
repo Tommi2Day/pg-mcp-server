@@ -2,10 +2,19 @@
 # Admin CLI for pg-mcp-server
 #
 # Prerequisites:
-#   AUTH_TOKEN  – Admin token (env var or .env file)
+#   AUTH_TOKEN  – Admin token (env var or .env file); ADMIN_TOKEN is accepted as an alias.
+#                 With OAuth (OAUTH_ISSUER) the access token (JWT) of a user with an admin assignment works too.
 #   MCP_URL     – Server URL (default: http://localhost:3000)
 #
 # Usage:
+#   ./admincli.sh whoami                        # who am I, how is the server secured
+#   ./admincli.sh list-assignments              # OAuth assignments (group/user -> connection)
+#   ./admincli.sh show-assignment   <id>
+#   ./admincli.sh add-assignment    --group G | --email E [connection options] [--admin] [--client-connection M] [--note T]
+#   ./admincli.sh delete-assignment <id>
+#   ./admincli.sh set-assignment-conn <id> '<json>' | clear-assignment-conn <id>
+#   ./admincli.sh set-assignment-client-conn <id> none|credentials|full
+#   ./admincli.sh set-assignment-admin <id> true|false
 #   ./admincli.sh list-tokens
 #   ./admincli.sh show-token    <id>
 #   ./admincli.sh add-token    <name>
@@ -26,13 +35,20 @@ if [ -f "$(dirname "$0")/.env" ]; then
   set -a; . "$(dirname "$0")/.env"; set +a
 fi
 
-ADMIN_TOKEN="${AUTH_TOKEN:-}"
+ADMIN_TOKEN="${AUTH_TOKEN:-${ADMIN_TOKEN:-}}"
 BASE_URL="${MCP_URL:-http://localhost:3000}"
 API="${BASE_URL}/admin/tokens"
+ASSIGN_API="${BASE_URL}/admin/assignments"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 die()  { echo "❌ $*" >&2; exit 1; }
 info() { echo "ℹ️  $*"; }
+# Escapes a value for use inside a JSON string.
+json_str() {
+  local v="${1//\\/\\\\}"
+  v="${v//\"/\\\"}"
+  printf '"%s"' "$v"
+}
 
 require_token() {
   [ -n "$ADMIN_TOKEN" ] || die "AUTH_TOKEN not set.\nExport: export AUTH_TOKEN=<admin-token>\nOr add it to scripts/.env."
@@ -176,49 +192,74 @@ PYEOF
   fi
 }
 
+# Connection options shared by add-token and add-assignment.
+# token mode: flags take precedence over PG_* env vars and the connection is only sent when a host is known;
+# assignment mode: only the given flags are sent (the server fills missing fields from PG_*), plus --group/--email/--admin/--note.
+parse_conn_opts() {
+  local mode="$1"; shift
+  o_host=""; o_port=""; o_db=""; o_user=""; o_pass=""; o_ssl=""; o_client=""
+  o_group=""; o_email=""; o_admin=""; o_note=""
+  if [ "$mode" = token ]; then
+    o_host="${PG_HOST:-}"; o_port="${PG_PORT:-5432}"; o_db="${PG_DATABASE:-postgres}"
+    o_user="${PG_USER:-postgres}"; o_pass="${PG_PASSWORD:-}"; o_ssl="${PG_SSL:-false}"
+  fi
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --host)     o_host="${2:?--host needs a value}";     shift 2 ;;
+      --port)     o_port="${2:?--port needs a value}";     shift 2 ;;
+      --database) o_db="${2:?--database needs a value}";   shift 2 ;;
+      --user)     o_user="${2:?--user needs a value}";     shift 2 ;;
+      --password) o_pass="${2:?--password needs a value}"; shift 2 ;;
+      --ssl)      o_ssl="${2:?--ssl needs a value}";       shift 2 ;;
+      --client-connection) o_client="${2:?--client-connection needs a value}"; shift 2 ;;
+      --group)  [ "$mode" = assignment ] || die "Unknown option: $1"; o_group="${2:?--group needs a value}"; shift 2 ;;
+      --email)  [ "$mode" = assignment ] || die "Unknown option: $1"; o_email="${2:?--email needs a value}"; shift 2 ;;
+      --note)   [ "$mode" = assignment ] || die "Unknown option: $1"; o_note="${2:?--note needs a value}"; shift 2 ;;
+      --admin)  [ "$mode" = assignment ] || die "Unknown option: $1"; o_admin=true; shift ;;
+      *) die "Unknown option: $1" ;;
+    esac
+  done
+}
+
+# Builds CONN_JSON (`,"connection": {…}` or empty) and CONN_TARGET from the o_* variables.
+build_conn_json() {
+  local mode="$1" fields=()
+  CONN_JSON=""; CONN_TARGET=""
+  if [ "$mode" = token ] && [ -z "$o_host" ]; then return; fi
+  [ -n "$o_host" ] && fields+=("\"host\": $(json_str "$o_host")")
+  [ -n "$o_port" ] && fields+=("\"port\": ${o_port}")
+  [ -n "$o_db" ]   && fields+=("\"database\": $(json_str "$o_db")")
+  [ -n "$o_user" ] && fields+=("\"user\": $(json_str "$o_user")")
+  [ -n "$o_pass" ] && fields+=("\"password\": $(json_str "$o_pass")")
+  [ -n "$o_ssl" ]  && fields+=("\"ssl\": $(json_str "$o_ssl")")
+  if [ ${#fields[@]} -gt 0 ]; then
+    local IFS=","
+    CONN_JSON=",\"connection\": {${fields[*]}}"
+    CONN_TARGET="${o_host:-(server default host)}:${o_port:-5432}/${o_db:-(server default database)}"
+  fi
+}
+
+# Sets CLIENT_JSON (`,"client_connection": "…"` or empty) from a mode; dies on an invalid one.
+build_client_json() {
+  CLIENT_JSON=""
+  case "$1" in
+    none|credentials|full) CLIENT_JSON=",\"client_connection\": \"$1\"" ;;
+    "") ;;
+    *) die "--client-connection must be none, credentials or full" ;;
+  esac
+}
+
 cmd_add_token() {
   require_token
   [ -n "${1:-}" ] || die "Usage: ./admincli.sh add-token <name> [--host H] [--port P] [--database D] [--user U] [--password P] [--ssl S] [--client-connection none|credentials|full]"
   local name="$1"; shift
 
-  # Parse optional flags; flags take precedence over env vars
-  local opt_host="" opt_port="" opt_db="" opt_user="" opt_pass="" opt_ssl="" opt_client=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --host)     opt_host="$2";  shift 2 ;;
-      --port)     opt_port="$2";  shift 2 ;;
-      --database) opt_db="$2";    shift 2 ;;
-      --user)     opt_user="$2";  shift 2 ;;
-      --password) opt_pass="$2";  shift 2 ;;
-      --ssl)      opt_ssl="$2";   shift 2 ;;
-      --client-connection) opt_client="$2"; shift 2 ;;
-      *) die "Unknown option: $1" ;;
-    esac
-  done
-
-  # Merge: flag > env var; connection block only emitted when a host is known
-  local host="${opt_host:-${PG_HOST:-}}"
-  local port="${opt_port:-${PG_PORT:-5432}}"
-  local db="${opt_db:-${PG_DATABASE:-postgres}}"
-  local user="${opt_user:-${PG_USER:-postgres}}"
-  local pass="${opt_pass:-${PG_PASSWORD:-}}"
-  local ssl="${opt_ssl:-${PG_SSL:-false}}"
-
-  local conn_json=""
-  if [ -n "$host" ]; then
-    conn_json=$(printf ',\n  "connection": {"host": "%s", "port": %s, "database": "%s", "user": "%s", "password": "%s", "ssl": "%s"}' \
-      "$host" "$port" "$db" "$user" "$pass" "$ssl")
-  fi
-
-  local client_json=""
-  case "$opt_client" in
-    none|credentials|full) client_json=",\"client_connection\": \"$opt_client\"" ;;
-    "") ;;
-    *) die "--client-connection must be none, credentials or full" ;;
-  esac
+  parse_conn_opts token "$@"
+  build_conn_json token
+  build_client_json "$o_client"
 
   local raw body
-  raw=$(api POST "$API" -d "{\"name\":\"${name}\"${conn_json}${client_json}}")
+  raw=$(api POST "$API" -d "{\"name\":$(json_str "$name")${CONN_JSON}${CLIENT_JSON}}")
   body=$(check_response "$raw")
 
   local token
@@ -236,12 +277,12 @@ cmd_add_token() {
   echo "   .mcp.json entry:"
   echo "   \"headers\": { \"Authorization\": \"Bearer ${token}\" }"
   echo ""
-  if [ -n "$host" ]; then
-    echo "   Connection: ${host}:${port}/${db} (user: ${user}, ssl: ${ssl})"
+  if [ -n "$CONN_JSON" ]; then
+    echo "   Connection: ${CONN_TARGET} (user: ${o_user}, ssl: ${o_ssl})"
     echo ""
   fi
-  if [ -n "$opt_client" ] && [ "$opt_client" != "none" ]; then
-    echo "   Client-supplied connection: ${opt_client} (X-Pg-* headers)"
+  if [ -n "$o_client" ] && [ "$o_client" != "none" ]; then
+    echo "   Client-supplied connection: ${o_client} (X-Pg-* headers)"
     echo ""
   fi
 }
@@ -330,17 +371,177 @@ cmd_set_client_conn() {
   echo "✅ Token ${id}: client-supplied connection = ${mode}."
 }
 
+# ── OAuth assignments (group / user → connection) ─────────────────────────────
+cmd_whoami() {
+  require_token
+  local raw body
+  raw=$(api GET "${BASE_URL}/admin/me")
+  body=$(check_response "$raw")
+  if _py3; then
+    python3 - "$body" <<'PYEOF'
+import sys, json
+d = json.loads(sys.argv[1])
+print(f"\n  Name    : {d.get('name')}")
+print(f"  Method  : {d.get('method')}")
+if d.get("email"):
+    print(f"  E-mail  : {d['email']}")
+o = d.get("oauth")
+if o:
+    print(f"  OAuth   : issuer {o.get('issuer')}, groups claim '{o.get('groups_claim')}', session {o.get('session_ttl')} s")
+else:
+    print("  OAuth   : not configured")
+print("")
+PYEOF
+  else
+    echo "$body"
+  fi
+}
+
+cmd_list_assignments() {
+  require_token
+  local raw body
+  raw=$(api GET "$ASSIGN_API")
+  body=$(check_response "$raw")
+  echo ""
+  if _py3; then
+    python3 - "$body" <<'PYEOF'
+import sys, json
+fmt = "{:<8} {:<6} {:<36} {:<6} {:<12} {:<11} {}"
+print(fmt.format("ID", "TYPE", "GROUP / USER", "ROLE", "SOURCE", "CLIENT", "CONNECTION"))
+print(fmt.format("-" * 8, "-" * 6, "-" * 36, "-" * 6, "-" * 12, "-" * 11, "-" * 30))
+for a in json.loads(sys.argv[1]).get("assignments", []):
+    kind = "group" if a.get("group") else "user"
+    c = a.get("connection") or {}
+    target = (c.get("host") and f"{c['host']}/{c.get('database') or ''}") or (c.get("database") and f"(default host)/{c['database']}") or "-"
+    if c.get("user"):
+        target += f" ({c['user']})"
+    print(fmt.format(str(a.get("id")), kind, a.get("group") or a.get("user"), "admin" if a.get("admin") else "user",
+                     a.get("source", "-"), a.get("client_connection") or "none", target))
+PYEOF
+  else
+    echo "$body"
+  fi
+  echo ""
+}
+
+cmd_show_assignment() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh show-assignment <id>"
+  local raw body
+  raw=$(api GET "$ASSIGN_API")
+  body=$(check_response "$raw")
+  if _py3; then
+    python3 - "$body" "$1" <<'PYEOF'
+import sys, json
+a = next((x for x in json.loads(sys.argv[1]).get("assignments", []) if str(x.get("id")) == sys.argv[2]), None)
+if not a:
+    print(f"❌ Assignment {sys.argv[2]} not found.", file=sys.stderr); sys.exit(1)
+print(json.dumps(a, indent=2))
+PYEOF
+  else
+    echo "$body"
+  fi
+}
+
+cmd_add_assignment() {
+  require_token
+  parse_conn_opts assignment "$@"
+  if [ -n "$o_group" ] && [ -n "$o_email" ]; then die "Use either --group or --email, not both"; fi
+  if [ -z "$o_group" ] && [ -z "$o_email" ]; then die "Usage: ./admincli.sh add-assignment --group <group> | --email <e-mail|object id|*@domain> [options] (see help)"; fi
+  build_conn_json assignment
+  build_client_json "$o_client"
+
+  local subject
+  if [ -n "$o_group" ]; then subject="\"group\":$(json_str "$o_group")"; else subject="\"user\":$(json_str "$o_email")"; fi
+  local extra=""
+  [ -z "$o_admin" ] || extra+=",\"admin\":true"
+  [ -z "$o_note" ] || extra+=",\"note\":$(json_str "$o_note")"
+
+  local raw body id
+  raw=$(api POST "$ASSIGN_API" -d "{${subject}${extra}${CONN_JSON}${CLIENT_JSON}}")
+  body=$(check_response "$raw")
+  id=$(echo "$body" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+  echo ""
+  echo "✅ Assignment created (ID: ${id}): ${o_group:+group }${o_group:-user }${o_email}${o_admin:+, admin}"
+  [ -z "$CONN_JSON" ] || echo "   Connection: ${CONN_TARGET} (user: ${o_user:-(default)})"
+  [ -z "$o_client" ] || [ "$o_client" = none ] || echo "   Client-supplied connection: ${o_client} (X-Pg-* headers)"
+  echo ""
+}
+
+cmd_delete_assignment() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh delete-assignment <id>"
+  check_response "$(api DELETE "${ASSIGN_API}/${1}")" >/dev/null
+  echo "✅ Assignment ${1} deleted."
+}
+
+cmd_set_assignment_conn() {
+  require_token
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || die "Usage: ./admincli.sh set-assignment-conn <id> '<json>'"
+  local body
+  body=$(check_response "$(api PATCH "${ASSIGN_API}/${1}" -d "{\"connection\":${2}}")")
+  echo "✅ Assignment ${1} connection updated."
+  pretty "$body"
+}
+
+cmd_clear_assignment_conn() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh clear-assignment-conn <id>"
+  check_response "$(api PATCH "${ASSIGN_API}/${1}" -d '{"connection":null}')" >/dev/null
+  echo "✅ Assignment ${1} connection cleared (uses default connection)."
+}
+
+cmd_set_assignment_client_conn() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh set-assignment-client-conn <id> none|credentials|full"
+  case "${2:-}" in
+    none|credentials|full) ;;
+    *) die "Usage: ./admincli.sh set-assignment-client-conn <id> none|credentials|full" ;;
+  esac
+  check_response "$(api PATCH "${ASSIGN_API}/${1}" -d "{\"client_connection\":\"${2}\"}")" >/dev/null
+  echo "✅ Assignment ${1}: client-supplied connection = ${2}."
+}
+
+cmd_set_assignment_admin() {
+  require_token
+  [ -n "${1:-}" ] || die "Usage: ./admincli.sh set-assignment-admin <id> true|false"
+  case "${2:-}" in
+    true|false) ;;
+    *) die "Usage: ./admincli.sh set-assignment-admin <id> true|false" ;;
+  esac
+  check_response "$(api PATCH "${ASSIGN_API}/${1}" -d "{\"admin\":${2}}")" >/dev/null
+  echo "✅ Assignment ${1}: admin = ${2}."
+}
+
 cmd_help() {
   cat <<EOF
 
 pg-mcp-server admin CLI
 
   Configuration (env vars or scripts/.env):
-    AUTH_TOKEN   Admin token (required for token commands)
+    AUTH_TOKEN   Admin token (required for all commands except health); ADMIN_TOKEN is an alias.
+                 With OAuth the access token (JWT) of a user whose assignment has admin: true works too.
     MCP_URL      Server URL  (default: http://localhost:3000)
 
   Server commands (no AUTH_TOKEN needed):
     health                       Show server health status
+
+    whoami                       Who the server thinks you are, and whether OAuth is configured
+
+  OAuth assignment commands (OAUTH_ISSUER set; group / e-mail -> default connection):
+    list-assignments             Environment (read-only) and stored assignments
+    show-assignment <id>         One assignment as JSON (passwords are never shown)
+    add-assignment               Create an assignment; the same connection options as add-token
+                                 (only the given ones are sent, the server fills the rest from PG_*) plus:
+               --group G         group name / object id from the groups claim, or
+               --email E         e-mail, object id (oid/sub) or *@domain
+               [--admin]         the user may also use the admin UI and API
+               [--note T]        free text
+    delete-assignment <id>       Delete a stored assignment
+    set-assignment-conn <id> '<json>'    Replace the connection (omitted password is kept)
+    clear-assignment-conn <id>   Back to the server default connection
+    set-assignment-client-conn <id> none|credentials|full
+    set-assignment-admin <id> true|false
 
   Token commands:
     list-tokens                  List all tokens
@@ -390,6 +591,13 @@ pg-mcp-server admin CLI
     ./admincli.sh add-token "analysts" --client-connection credentials
     ./admincli.sh set-client-conn 2 full
 
+    # OAuth: everybody in the group grp-dba uses the database prod, alice may bring her own account
+    ./admincli.sh add-assignment --group grp-dba --host dba-db --database prod --user dba --password secret
+    ./admincli.sh add-assignment --email alice@example.com --client-connection credentials
+    ./admincli.sh add-assignment --email '*@example.com'          # access with the default connection
+    ./admincli.sh add-assignment --group grp-admin --admin        # may use the admin UI/API
+    ./admincli.sh list-assignments
+
 EOF
 }
 
@@ -405,6 +613,15 @@ case "${1:-help}" in
   set-conn)      cmd_set_conn      "${2:-}" "${3:-}" ;;
   clear-conn)    cmd_clear_conn    "${2:-}" ;;
   set-client-conn) cmd_set_client_conn "${2:-}" "${3:-}" ;;
+  whoami)        cmd_whoami ;;
+  list-assignments)  cmd_list_assignments ;;
+  show-assignment)   cmd_show_assignment   "${2:-}" ;;
+  add-assignment)    cmd_add_assignment    "${@:2}" ;;
+  delete-assignment) cmd_delete_assignment "${2:-}" ;;
+  set-assignment-conn)        cmd_set_assignment_conn        "${2:-}" "${3:-}" ;;
+  clear-assignment-conn)      cmd_clear_assignment_conn      "${2:-}" ;;
+  set-assignment-client-conn) cmd_set_assignment_client_conn "${2:-}" "${3:-}" ;;
+  set-assignment-admin)       cmd_set_assignment_admin       "${2:-}" "${3:-}" ;;
   health)        cmd_health ;;
   help|--help|-h) cmd_help ;;
   *) die "Unknown command: ${1}\nHelp: ./admincli.sh help" ;;
