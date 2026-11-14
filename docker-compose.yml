@@ -1,6 +1,8 @@
 services:
   postgres-test:
     image: postgres:18-alpine
+    # pg_stat_statements for top_queries, the top-sql / sql-tuning skills and tests/skills.integration.test.js
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all"]
     ports:
       - "5433:5432"
     environment:
@@ -12,6 +14,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - mcp-net
+
+  # OIDC identity provider for the OAuth integration tests (docker compose --profile oidc up -d oidc-test).
+  # Issues tokens without a login screen; users/groups are defined in tests/oidc/mock-oauth2-config.json.
+  # Run: OIDC_TEST_ISSUER=http://localhost:8080/default npx vitest run tests/oidc.integration.test.js
+  oidc-test:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+    profiles: ["oidc"]
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      JSON_CONFIG_PATH: /config/config.json
+    volumes:
+      - ./tests/oidc/mock-oauth2-config.json:/config/config.json:ro
     networks:
       - mcp-net
 
@@ -54,6 +72,19 @@ services:
       # Bearer token for /mcp and /admin/tokens (empty = auth disabled)
       # Generate with: openssl rand -hex 32
       AUTH_TOKEN: "${AUTH_TOKEN:-}"
+
+      # ── OAuth 2.0 / OIDC (Entra ID, …) — see docs/oauth.md; empty OAUTH_ISSUER = off ──
+      OAUTH_ISSUER: "${OAUTH_ISSUER:-}"
+      OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID:-}"
+      OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-}"
+      OAUTH_AUDIENCE: "${OAUTH_AUDIENCE:-}"
+      OAUTH_PUBLIC_URL: "${OAUTH_PUBLIC_URL:-}"
+      OAUTH_GROUPS_CLAIM: "${OAUTH_GROUPS_CLAIM:-}"
+      OAUTH_ALLOWED_GROUPS: "${OAUTH_ALLOWED_GROUPS:-}"
+      OAUTH_ALLOWED_USERS: "${OAUTH_ALLOWED_USERS:-}"
+      OAUTH_ADMIN_GROUPS: "${OAUTH_ADMIN_GROUPS:-}"
+      OAUTH_ADMIN_USERS: "${OAUTH_ADMIN_USERS:-}"
+      OAUTH_ASSIGNMENTS: "${OAUTH_ASSIGNMENTS:-}"
 
       # ── Token store ───────────────────────────────────────────────────────
       TOKENS_FILE: /data/tokens.json

@@ -4,6 +4,10 @@
  */
 import fs from "node:fs";
 import crypto from "node:crypto";
+import {
+  getOAuthConfig, verifyJwt, looksLikeJwt, identityFromClaims, resolveAccess, envAssignments,
+  sessionFromRequest, safeLogValue, OAuthError, assignmentError, ASSIGNMENT_FIELDS,
+} from "./oauth.js";
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
@@ -35,6 +39,13 @@ function logAuthFailure(req, reason, tokenName) {
   const pathname = new URL(req.url || "/", "http://x").pathname;
   const tokenPart = tokenName ? ` token="${tokenName}"` : "";
   log("warn", "AUTH", `result="denied"${tokenPart} action="${req.method} ${pathname}" ip="${getClientIp(req)}" reason="${reason}"`);
+}
+
+/** Audit trail line `[AUDIT] key="value" …` (who did what); values are sanitized, never contains secrets. */
+export function audit(fields) {
+  const parts = Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${k}="${safeLogValue(v, 256)}"`);
+  log("info", "AUDIT", parts.join(" "));
 }
 
 // ── File / env helpers ────────────────────────────────────────────────────────
@@ -128,16 +139,21 @@ function decryptValue(value) {
   }
 }
 
+/** Applies fn to the stored connection password of every token and assignment. */
+function mapStoredPasswords(data, fn) {
+  const map = (e) => (e.connection?.password ? { ...e, connection: { ...e.connection, password: fn(e.connection.password) } } : e);
+  return {
+    ...data,
+    tokens: data.tokens.map(map),
+    ...(Array.isArray(data.assignments) && { assignments: data.assignments.map(map) }),
+  };
+}
+
 export function loadTokenStore() {
   if (tokenStoreCache) return tokenStoreCache;
   const file = getTokensFile();
   try {
-    const data = JSON.parse(fs.readFileSync(file, "utf8"));
-    for (const token of data.tokens) {
-      if (token.connection?.password) {
-        token.connection = { ...token.connection, password: decryptValue(token.connection.password) };
-      }
-    }
+    const data = mapStoredPasswords(JSON.parse(fs.readFileSync(file, "utf8")), decryptValue);
     tokenStoreCache = data;
     return data;
   } catch (e) {
@@ -148,20 +164,12 @@ export function loadTokenStore() {
 
 export function saveTokenStore(data) {
   const file  = getTokensFile();
-  const key   = getEncryptionKey();
-  const toWrite = key ? {
-    ...data,
-    tokens: data.tokens.map(t =>
-      t.connection?.password
-        ? { ...t, connection: { ...t.connection, password: encryptValue(t.connection.password) } }
-        : t
-    ),
-  } : data;
+  const toWrite = getEncryptionKey() ? mapStoredPasswords(data, encryptValue) : data;
   fs.writeFileSync(file, JSON.stringify(toWrite, null, 2), "utf8");
   tokenStoreCache = data;
 }
 
-/** On startup: find any tokens whose stored password is still plaintext and encrypt them. */
+/** On startup: find any tokens / assignments whose stored password is still plaintext and encrypt them. */
 export function migrateTokenStore() {
   if (!getEncryptionKey()) return;
   const file = getTokensFile();
@@ -172,17 +180,13 @@ export function migrateTokenStore() {
     if (e.code === "ENOENT") return;
     throw e;
   }
-  const plainCount = rawData.tokens.filter(
+  const entries = [...rawData.tokens, ...(rawData.assignments ?? [])];
+  const plainCount = entries.filter(
     t => t.connection?.password && !t.connection.password.startsWith(ENC_PREFIX)
   ).length;
   if (plainCount === 0) return;
   // Decrypt any values that are already encrypted, leaving plain ones as-is
-  for (const token of rawData.tokens) {
-    if (token.connection?.password) {
-      token.connection = { ...token.connection, password: decryptValue(token.connection.password) };
-    }
-  }
-  saveTokenStore(rawData); // re-encrypts every password
+  saveTokenStore(mapStoredPasswords(rawData, decryptValue)); // re-encrypts every password
   log("info", "STORE", `Encrypted ${plainCount} plaintext password(s) in token store.`);
 }
 
@@ -194,11 +198,18 @@ export function extractBearer(req) {
 
 export function send401(res) {
   const realm = process.env.MCP_SERVER_NAME || "pg-mcp-server";
+  const publicUrl = getOAuthConfig()?.publicUrl;
+  const metadata = publicUrl ? `, resource_metadata="${publicUrl}/.well-known/oauth-protected-resource"` : "";
   res.writeHead(401, {
     "Content-Type": "application/json",
-    "WWW-Authenticate": `Bearer realm="${realm}"`,
+    "WWW-Authenticate": `Bearer realm="${realm}"${metadata}`,
   });
   res.end(JSON.stringify({ error: "Unauthorized" }));
+}
+
+export function send403(res, message = "Forbidden") {
+  res.writeHead(403, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: message }));
 }
 
 export function readBody(req) {
@@ -234,21 +245,47 @@ export function checkAdminAuth(req, res) {
   return true;
 }
 
-/** MCP auth — accepts AUTH_TOKEN env var OR any active file token.
- *  Returns { ok: true, name: string, connection: object|null } on success,
- *  { ok: false } on failure. */
-export async function checkAuth(req, res) {
-  const authToken = getAuthToken();
-  if (!authToken) return { ok: true, name: "anonymous", connection: null, clientConnection: envClientConnectionMode() };
-  const token = extractBearer(req);
-  if (!token) { logAuthFailure(req, "missing token"); send401(res); return { ok: false }; }
-  if (timingSafeEqual(token, authToken)) {
-    return { ok: true, name: "admin", connection: null, clientConnection: envClientConnectionMode() };
+/** All assignments: env (read-only) first, then the ones stored via the admin UI. */
+export function allAssignments() {
+  return [...envAssignments(), ...(loadTokenStore().assignments ?? [])];
+}
+
+/** Validates a bearer JWT. Returns { identity } or { error } (reason safe to log). */
+async function verifyBearerIdentity(token, oauth) {
+  try {
+    return { identity: identityFromClaims(await verifyJwt(token, oauth), oauth) };
+  } catch (e) {
+    return { error: e instanceof OAuthError ? e.message : "token validation failed" };
   }
-  // File token check
-  const hash = hashToken(token);
+}
+
+/** Authenticated identity → access decision; a denial is logged (AUTH). */
+function decideAccess(req, identity) {
+  const access = resolveAccess(identity, allAssignments());
+  if (!access.allowed) {
+    const hint = identity.groupsOverage ? " (token has too many groups: group list not included - use app-assigned groups or roles)" : "";
+    logAuthFailure(req, `oauth: no assignment for this user or groups${hint}`, identity.display);
+  }
+  return access;
+}
+
+/** MCP request with an OAuth access token (JWT). */
+async function checkOAuthBearer(req, res, token, oauth) {
+  const { identity, error } = await verifyBearerIdentity(token, oauth);
+  if (!identity) { logAuthFailure(req, `oauth: ${error}`); send401(res); return { ok: false }; }
+  const access = decideAccess(req, identity);
+  if (!access.allowed) { send403(res, "No access: user or groups are not assigned to this server"); return { ok: false }; }
+  return {
+    ok: true, name: identity.display, connection: access.connection,
+    clientConnection: parseClientConnectionMode(access.clientConnection) ?? "none",
+    identity: { sub: identity.sub, email: identity.email, name: identity.name, assignment: access.assignment, admin: access.admin },
+  };
+}
+
+/** File-token lookup for /mcp (see checkAuth). */
+function checkFileToken(req, res, token) {
   const store = loadTokenStore();
-  const entry = store.tokens.find(t => t.token_hash === hash);
+  const entry = store.tokens.find(t => t.token_hash === hashToken(token));
   if (!entry) { logAuthFailure(req, "unknown token"); send401(res); return { ok: false }; }
   if (!entry.active) { logAuthFailure(req, "token disabled", entry.name); send401(res); return { ok: false }; }
   entry.last_used_at = new Date().toISOString();
@@ -257,6 +294,63 @@ export async function checkAuth(req, res) {
     ok: true, name: entry.name, connection: entry.connection || null,
     clientConnection: parseClientConnectionMode(entry.client_connection) ?? "none",
   };
+}
+
+/** MCP auth — accepts AUTH_TOKEN env var, any active file token or (OAUTH_ISSUER set) an OAuth access token.
+ *  Returns { ok: true, name, connection, clientConnection[, identity] } on success, { ok: false } on failure.
+ *  Without AUTH_TOKEN and OAuth, auth is disabled. */
+export async function checkAuth(req, res) {
+  const authToken = getAuthToken();
+  const oauth = getOAuthConfig();
+  if (!authToken && !oauth) return { ok: true, name: "anonymous", connection: null, clientConnection: envClientConnectionMode() };
+  const token = extractBearer(req);
+  if (!token) { logAuthFailure(req, "missing token"); send401(res); return { ok: false }; }
+  if (authToken && timingSafeEqual(token, authToken)) {
+    return { ok: true, name: "admin", connection: null, clientConnection: envClientConnectionMode() };
+  }
+  if (oauth && looksLikeJwt(token)) return checkOAuthBearer(req, res, token, oauth);
+  return checkFileToken(req, res, token);
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Identity behind an admin request: bearer JWT, else the browser session cookie. */
+async function adminIdentity(req, token, oauth) {
+  if (token && looksLikeJwt(token)) return { ...await verifyBearerIdentity(token, oauth), via: "bearer" };
+  const session = sessionFromRequest(req);
+  return session ? { identity: session.identity, via: "session" } : { error: "missing token" };
+}
+
+/**
+ * Admin API / Admin UI authentication. Returns { ok, name, method } (res already answered when not ok).
+ *  - AUTH_TOKEN bearer -> "admin"
+ *  - OAuth (OAUTH_ISSUER): bearer JWT or login session of a user whose assignment has admin:true.
+ *    Session cookies are protected against CSRF: changing requests need an X-Requested-With header.
+ *  - neither configured -> "anonymous"
+ */
+export async function authenticateAdmin(req, res) {
+  const oauth = getOAuthConfig();
+  if (!oauth) {
+    if (!checkAdminAuth(req, res)) return { ok: false };
+    return getAuthToken() ? { ok: true, name: "admin", method: "token" } : { ok: true, name: "anonymous", method: "none" };
+  }
+  const token = extractBearer(req);
+  const authToken = getAuthToken();
+  if (token && authToken && timingSafeEqual(token, authToken)) return { ok: true, name: "admin", method: "token" };
+  const { identity, via, error } = await adminIdentity(req, token, oauth);
+  if (!identity) { logAuthFailure(req, `oauth: ${error}`); send401(res); return { ok: false }; }
+  const access = decideAccess(req, identity);
+  if (!access.admin) {
+    if (access.allowed) logAuthFailure(req, "oauth: not an admin", identity.display);
+    send403(res, "Admin rights required");
+    return { ok: false };
+  }
+  if (via === "session" && !SAFE_METHODS.has(req.method) && !req.headers?.["x-requested-with"]) {
+    logAuthFailure(req, "oauth: missing X-Requested-With header (CSRF protection)", identity.display);
+    send403(res, "Missing X-Requested-With header");
+    return { ok: false };
+  }
+  return { ok: true, name: identity.display, method: "oauth", identity };
 }
 
 // ── Client-supplied connection (X-Pg-* headers) ──────────────────────────────
@@ -446,27 +540,109 @@ function deleteToken(req, res, id, onDelete) {
   sendJson(res, 200, { ok: true, id });
 }
 
-const ADMIN_COLLECTION_ROUTES = { GET: listTokens, POST: createToken };
-const ADMIN_ITEM_ROUTES       = { PATCH: updateToken, DELETE: deleteToken };
+// ── Admin: OAuth assignments (/admin/assignments[/:id]) and /admin/me ────────
+const stripEnvSecret = (a) => (a.connection?.password ? { ...a, connection: { ...a.connection, password: undefined } } : a);
+
+// GET /admin/assignments – env assignments (read-only, password masked) followed by the stored ones
+function listAssignments(req, res) {
+  const stored = (loadTokenStore().assignments ?? []).map(a => ({ ...a, source: "store" }));
+  sendJson(res, 200, { assignments: [...envAssignments().map(stripEnvSecret), ...stored] });
+}
+
+/** Picks the known assignment fields out of a request body. */
+const pickAssignment = (body) => Object.fromEntries(ASSIGNMENT_FIELDS.filter(k => body[k] !== undefined).map(k => [k, body[k]]));
+
+// POST /admin/assignments – { group | user, connection, client_connection, admin, note }
+async function createAssignment(req, res) {
+  const body = JSON.parse(await readBody(req) || "{}");
+  const error = assignmentError(body) || (parseClientConnectionMode(body.client_connection) ? null : CLIENT_MODE_ERROR);
+  if (error) return sendJson(res, 400, { error });
+  const store = loadTokenStore();
+  const entry = {
+    id: store.next_assignment_id ?? 1,
+    ...pickAssignment(body),
+    connection: body.connection || null,
+    created_at: new Date().toISOString(),
+  };
+  if (entry.client_connection === "none") delete entry.client_connection;
+  store.next_assignment_id = entry.id + 1;
+  store.assignments = [...(store.assignments ?? []), entry];
+  saveTokenStore(store);
+  sendJson(res, 201, { ...entry, source: "store" });
+}
+
+// PATCH /admin/assignments/:id – change connection, client_connection, admin, note (not group/user: delete and re-create)
+async function updateAssignment(req, res, id) {
+  const updates = JSON.parse(await readBody(req) || "{}");
+  if (updates.group !== undefined || updates.user !== undefined) {
+    return sendJson(res, 400, { error: '"group" and "user" cannot be changed' });
+  }
+  const error = assignmentError(updates, { partial: true }) || (parseClientConnectionMode(updates.client_connection) ? null : CLIENT_MODE_ERROR);
+  if (error) return sendJson(res, 400, { error });
+  const store = loadTokenStore();
+  const entry = (store.assignments ?? []).find(a => a.id === id);
+  if (!entry) return sendJson(res, 404, { error: "Not found" });
+  Object.assign(entry, pickAssignment(updates));
+  if (updates.connection !== undefined) entry.connection = updates.connection || null;
+  if (entry.client_connection === "none") delete entry.client_connection;
+  saveTokenStore(store);
+  sendJson(res, 200, { ...entry, source: "store" });
+}
+
+// DELETE /admin/assignments/:id
+function deleteAssignment(req, res, id) {
+  const store = loadTokenStore();
+  const list = store.assignments ?? [];
+  const idx = list.findIndex(a => a.id === id);
+  if (idx === -1) return sendJson(res, 404, { error: "Not found" });
+  list.splice(idx, 1);
+  store.assignments = list;
+  saveTokenStore(store);
+  sendJson(res, 200, { ok: true, id });
+}
+
+// GET /admin/me – who is calling and how the server is secured (for the admin UI)
+function showMe(req, res, id, onDelete, admin) {
+  const oauth = getOAuthConfig();
+  sendJson(res, 200, {
+    name: admin.name, method: admin.method,
+    email: admin.identity?.email ?? null, user_name: admin.identity?.name ?? null,
+    oauth: oauth && {
+      issuer: oauth.issuer, groups_claim: oauth.groupsClaim, audience: oauth.audience,
+      session_ttl: oauth.sessionTtl,
+    },
+  });
+}
+
+const ADMIN_RESOURCES = {
+  tokens:      { collection: { GET: listTokens, POST: createToken }, item: { PATCH: updateToken, DELETE: deleteToken } },
+  assignments: { collection: { GET: listAssignments, POST: createAssignment }, item: { PATCH: updateAssignment, DELETE: deleteAssignment } },
+  me:          { collection: { GET: showMe }, item: {} },
+};
 
 export async function handleAdminRequest(req, res, { onDelete } = {}) {
-  if (!checkAdminAuth(req, res)) return;
+  const admin = await authenticateAdmin(req, res);
+  if (!admin.ok) return;
 
   const pathname = new URL(req.url, "http://x").pathname;
-  const match = pathname.match(/^\/admin\/tokens(?:\/(\d+))?$/);
+  const match = pathname.match(/^\/admin\/(tokens|assignments|me)(?:\/(\d+))?$/);
   if (!match) return sendJson(res, 404, { error: "Not found" });
-  const id = match[1] ? parseInt(match[1], 10) : null;
+  const id = match[2] ? parseInt(match[2], 10) : null;
 
   const ip = getClientIp(req);
-  // Auth disabled → requests are unauthenticated, don't attribute them to the admin token
-  const tokenName = getAuthToken() ? "admin" : "anonymous";
+  // Auth disabled → requests are unauthenticated; OAuth → the user's e-mail (or subject) is the actor
+  const tokenName = admin.name;
   log("info", "ADMIN", `token="${tokenName}" action="${req.method} ${pathname}" ip="${ip}"`);
+  if (admin.identity && !SAFE_METHODS.has(req.method)) {
+    audit({ user: admin.identity.display, sub: admin.identity.sub, action: `${req.method} ${pathname}`, ip, via: "oauth-admin" });
+  }
 
-  const routes = id ? ADMIN_ITEM_ROUTES : ADMIN_COLLECTION_ROUTES;
+  const resource = ADMIN_RESOURCES[match[1]];
+  const routes = id ? resource.item : resource.collection;
   const handler = Object.hasOwn(routes, req.method) ? routes[req.method] : null;
   if (!handler) return sendJson(res, 405, { error: "Method Not Allowed" });
   try {
-    await handler(req, res, id, onDelete);
+    await handler(req, res, id, onDelete, admin);
   } catch (err) {
     log("error", "ADMIN", `token="${tokenName}" action="${req.method} ${pathname}" ip="${ip}" error=${JSON.stringify(err.message)}`);
     if (err.stack) log("debug", "ADMIN", err.stack);

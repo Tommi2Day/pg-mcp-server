@@ -31,10 +31,12 @@ import { randomUUID, createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import {
   readFileEnv, buildPgSsl, getAuthToken,
-  checkAuth, checkAdminAuth, handleAdminRequest, migrateTokenStore,
+  checkAuth, authenticateAdmin, handleAdminRequest, migrateTokenStore, audit,
   log, isLogEnabled, getClientIp, getLogLevel,
   clientConnectionFromHeaders, applyClientConnection, ClientConnectionError,
 } from "./lib.js";
+import { getOAuthConfig, oauthConfigProblems, browserLoginEnabled } from "./oauth.js";
+import { handleOAuthRoute } from "./oauth-routes.js";
 import { loadAdminBranding, renderAdminHtml } from "./branding.js";
 import { loadPrompts, buildPromptResult } from "./prompts.js";
 
@@ -829,8 +831,8 @@ function serveHealth(req, res) {
   res.end(JSON.stringify({ status: "ok", tls: tlsEnabled }));
 }
 
-function serveInfo(req, res) {
-  if (!checkAdminAuth(req, res)) return;
+async function serveInfo(req, res) {
+  if (!(await authenticateAdmin(req, res)).ok) return;
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({
     name: mcpServerName,
@@ -901,6 +903,10 @@ function trackSession(transport, id, { auth, clientIp, client, connection }) {
     const d = describeTarget(connection);
     connInfo = ` connection="client" target="${d.target}" user="${d.user}"`;
   }
+  if (auth.identity) {
+    audit({ user: auth.name, sub: auth.identity.sub, action: "session_start", session: id, via: "oauth", ip: clientIp,
+      assignment: auth.identity.assignment, admin: auth.identity.admin });
+  }
   const startedAt = Date.now();
   log("info", "SESSION", `token="${auth.name}" action="start" session="${id}" ip="${clientIp}"${connInfo}`);
   // Chain instead of overwrite: server.connect() already installed its own onclose
@@ -916,10 +922,11 @@ function trackSession(transport, id, { auth, clientIp, client, connection }) {
 
 async function _handleRequest(req, res) {
   const route = `${req.method} ${req.url}`;
+  if ((req.url?.startsWith("/auth/") || req.url?.startsWith("/.well-known/")) && await handleOAuthRoute(req, res)) return;
   if (route === "GET /admin" || route === "GET /admin/") return serveAdminHtml(req, res);
   if (route === "GET /health") return serveHealth(req, res);
   if (route === "GET /info") return serveInfo(req, res);
-  if (req.url?.startsWith("/admin/tokens")) {
+  if (/^\/admin\/(tokens|assignments|me)(\/|$)/.test(req.url ?? "")) {
     return handleAdminRequest(req, res, {
       onDelete: (token) => closePool(token.connection, token.name),
     });
@@ -927,6 +934,15 @@ async function _handleRequest(req, res) {
   if (req.url === "/mcp") return handleMcp(req, res);
   res.writeHead(404);
   res.end("Not found");
+}
+
+/** One-line description of the active authentication for the startup banner. */
+function describeAuth(oauth) {
+  if (oauth) {
+    const login = browserLoginEnabled(oauth) ? ", browser login for the admin UI" : "";
+    return `🔑 OAuth 2.0 (issuer ${oauth.issuer})${getAuthToken() ? " + AUTH_TOKEN/file tokens" : ""}${login}`;
+  }
+  return getAuthToken() ? "🔑 Bearer token required (env + file tokens)" : "⚠️  disabled (AUTH_TOKEN not set)";
 }
 
 // ── Process-level error handlers (only when run directly) ────────────────────
@@ -952,9 +968,9 @@ if (isMain) {
   const PORT        = parseInt(process.env.PORT || "3000");
 
   if (TRANSPORT === "http") {
-    const authInfo = getAuthToken()
-      ? "🔑 Bearer token required (env + file tokens)"
-      : "⚠️  disabled (AUTH_TOKEN not set)";
+    const oauth = getOAuthConfig();
+    for (const p of oauthConfigProblems(oauth)) console.error(`⚠️  OAuth: ${p}`);
+    const authInfo = describeAuth(oauth);
 
     if (TLS_ENABLED) {
       // ── HTTPS ─────────────────────────────────────────────────────────────
