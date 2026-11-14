@@ -442,7 +442,7 @@ The inspector opens a browser UI where you can list tools, call them individuall
 The chart is published to the GitHub Container Registry with every release:
 
 ```bash
-helm show values oci://ghcr.io/tommi2day/charts/pg-mcp-server --version 1.0.0
+helm show values oci://ghcr.io/tommi2day/charts/pg-mcp-server --version 1.1.0
 ```
 
 Omit `--version` for the latest release. The examples below install from the registry; to use a local checkout,

@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-14
+
 ### Added
 - **OAuth 2.0 / OpenID Connect** as an alternative to bearer tokens, primarily for Microsoft Entra ID (any OIDC provider
   works): `OAUTH_ISSUER` switches it on. MCP clients send an access token (JWT: signature via JWKS, issuer, audience,
@@ -308,7 +310,8 @@ token management with Admin UI, Docker image and Helm chart on GHCR. Combines th
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.4.0...1.0.0
 [0.4.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.2.2...0.3.0
