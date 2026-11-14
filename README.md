@@ -80,7 +80,17 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
 | `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` (empty = auth disabled) |
-| `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …); more `OAUTH_*` variables (e.g. `OAUTH_RESOURCE_SCOPES`) in [docs/oauth.md](docs/oauth.md) |
+| `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …): issuer URL, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0`. With OAuth on and no `AUTH_TOKEN`, auth is **not** disabled ([details](docs/oauth.md)) |
+| `OAUTH_AUDIENCE` | `OAUTH_CLIENT_ID` | Accepted `aud` values of access tokens, comma separated (Entra: `api://<app-id>`) |
+| `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | – | App registration for the admin UI single sign-on (secret omitted for public clients; PKCE is always used) |
+| `OAUTH_PUBLIC_URL` | – | External URL, e.g. `https://mcp.example.com`; redirect URI = `<url>/auth/callback`, also needed for MCP clients that log in themselves |
+| `OAUTH_RESOURCE_SCOPES` | `<audience>/.default` | Scopes advertised to MCP clients (space/comma separated); Keycloak: `openid profile email` |
+| `OAUTH_GROUPS_CLAIM` / `OAUTH_EMAIL_CLAIM` | `groups` / `email`, `preferred_username`, `upn` | Claims with the groups and the e-mail of the user |
+| `OAUTH_ALLOWED_GROUPS` / `OAUTH_ALLOWED_USERS` | – | Groups, e-mails (or `*@domain`) that may use the server — deny by default |
+| `OAUTH_ADMIN_GROUPS` / `OAUTH_ADMIN_USERS` | – | Groups / users that may also use the admin UI and API |
+| `OAUTH_ASSIGNMENTS` | – | JSON array: group or user → default connection, `client_connection`, `admin` (also editable in the admin UI) |
+| `OAUTH_JWKS_URI`, `OAUTH_AUTHORIZATION_ENDPOINT`, `OAUTH_TOKEN_ENDPOINT` | discovery | Override the provider's discovery document |
+| `OAUTH_ALLOWED_ISSUERS`, `OAUTH_SCOPES`, `OAUTH_REDIRECT_URI`, `OAUTH_REQUIRE_VERIFIED_EMAIL`, `OAUTH_SESSION_TTL` | see docs | Further options: [oauth.md](docs/oauth.md) |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI title; prefix of the database `application_name` (`<name>:<token>`) |
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
