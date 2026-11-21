@@ -31,20 +31,20 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 **Security & transport**
 - stdio (Claude Desktop / Claude Code) or Streamable HTTP with session management
 - HTTPS with own certificates, auto-generated self-signed certs (renewed before expiry) and optional **mTLS** for clients
-- TLS to PostgreSQL incl. server-cert verification (`PG_SSL=verify`) and client certificates
+- TLS to PostgreSQL incl. server-cert verification (`PG_SSL=verify`, also per token or user with `ssl: verify`) and client certificates
 - Container runs as non-root (uid 1000), no privilege escalation, all capabilities dropped in Kubernetes
 - Hardened by default: the HTTP server refuses to start without authentication (`ALLOW_ANONYMOUS`), sessions are bound to the client that opened them, failed logins are throttled per IP (HTTP 429), the token store is `0600` with an scrypt-derived key, the admin UI is served with CSP and no framing, and the Docker image is scanned with Trivy in CI ([details](#security-hardening))
 
 **Audit logging**
 - Every tool call with token name (with OAuth: the **user's e-mail**, also visible as `application_name` in `pg_stat_activity`), client IP and parameters; session start/stop with duration
 - Dedicated `AUDIT` log category for SSO logins/logouts, MCP sessions and admin changes of authorized users
-- Failed logins with reason (unknown / disabled / invalid admin token) — presented tokens are never logged
+- Failed logins with reason (unknown / disabled / invalid admin token, throttled, session of another user) and refused writes of read-only tokens — presented tokens are never logged
 - Admin API actions ([example output](#logging)); `LOG_LEVEL` (`debug`/`info`/`warn`/`error`) — SQL text only at `debug`
 
 **Operations**
-- Docker image on Docker Hub, `docker-compose` with test database, persistent volumes for tokens and certs
+- Docker image on Docker Hub and GitHub Container Registry, `docker-compose` with test database, persistent volumes for tokens and certs
 - Helm chart: PVC for the token store, existing Secrets, ingress, HPA, TLS-aware health probes
-- Only two runtime dependencies (MCP SDK, `pg`), no build step, ~100 unit tests, Dependabot updates
+- Only two runtime dependencies (MCP SDK, `pg`), no build step, 400+ tests (unit, plus integration against real PostgreSQL, Keycloak and a mock OIDC server), Dependabot updates
 
 ### Why this server?
 
@@ -56,9 +56,10 @@ Most PostgreSQL MCP servers are built for **one developer on one machine**: star
 | Authentication | None — whoever can start it has access | Bearer tokens (admin vs. client, revocable at runtime) **or** OAuth 2.0 / OIDC single sign-on (Entra ID, Keycloak, …) incl. admin UI |
 | Databases per instance | One connection string | One per token, or per **user / group** with SSO, managed centrally |
 | Credential handling | DB password in every client config | DB password stays on the server; clients only get a revocable token or sign in with their identity provider |
-| Read-only safety | Often SQL keyword checks or none | Enforced by PostgreSQL (`BEGIN READ ONLY`) |
+| Read-only safety | Often SQL keyword checks or none | Enforced by PostgreSQL (`BEGIN READ ONLY`); per token or SSO user the write tool can be removed entirely (`read_only`) |
 | Audit | Usually none | Who (token or SSO user e-mail) ran which tool from which IP, failed logins, sessions |
 | Transport security | Plain local process | HTTPS, mTLS, verified TLS to PostgreSQL |
+| Abuse protection | Usually none | Failed logins throttled per IP, sessions bound to their owner, refuses to start without authentication, Docker image scanned with Trivy in CI |
 | Tested against | Rarely more than unit tests | Real PostgreSQL, a mock OIDC server and Keycloak in Docker containers (CI) |
 
 Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived) (stdio only, a single read-only `query` tool), this server adds schema tools, a separate write tool, remote transport and everything above.
