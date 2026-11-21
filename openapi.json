@@ -117,6 +117,10 @@
           },
           "client_connection": {
             "$ref": "#/components/schemas/ClientConnectionMode"
+          },
+          "read_only": {
+            "type": "boolean",
+            "description": "Disables the execute tool (no INSERT/UPDATE/DELETE/DDL); with several matching assignments the most restrictive wins."
           }
         }
       },
@@ -170,6 +174,10 @@
               "credentials",
               "full"
             ]
+          },
+          "read_only": {
+            "type": "boolean",
+            "description": "Disables the execute tool (no INSERT/UPDATE/DELETE/DDL); with several matching assignments the most restrictive wins."
           },
           "admin": {
             "type": "boolean"
@@ -454,6 +462,10 @@
                   },
                   "client_connection": {
                     "$ref": "#/components/schemas/ClientConnectionMode"
+                  },
+                  "read_only": {
+                    "type": "boolean",
+                    "description": "Disables the execute tool (no INSERT/UPDATE/DELETE/DDL); with several matching assignments the most restrictive wins."
                   }
                 },
                 "required": [
@@ -562,6 +574,10 @@
                   },
                   "client_connection": {
                     "$ref": "#/components/schemas/ClientConnectionMode"
+                  },
+                  "read_only": {
+                    "type": "boolean",
+                    "description": "Disables the execute tool (no INSERT/UPDATE/DELETE/DDL); with several matching assignments the most restrictive wins."
                   }
                 }
               },
