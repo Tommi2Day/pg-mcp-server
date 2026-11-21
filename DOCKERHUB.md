@@ -170,7 +170,7 @@ The performance tools work best with `GRANT pg_monitor TO <user>` and the `pg_st
 
 ## Admin UI
 
-Manage tokens and their database connections at `/admin`:
+Manage tokens, their database connections and read-only access at `/admin`:
 
 ![Admin UI: token list](https://raw.githubusercontent.com/Tommi2Day/pg-mcp-server/main/docs/images/admin-tokens.png)
 

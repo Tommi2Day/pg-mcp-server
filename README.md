@@ -854,15 +854,15 @@ Rules and safeguards:
 Open `http://<HOST>:3000/admin` in a browser. The web interface lets you manage tokens without using the command line or curl.
 
 - **Login**: enter the server URL and the `AUTH_TOKEN` value. Leave the token field empty if auth is disabled. With OAuth configured, *Sign in with single sign-on* logs in members of an admin group/user.
-- **OAuth assignments** (only with OAuth): map groups or e-mails to a default database connection, client-connection mode and the admin role; assignments from environment variables are listed read-only.
-- **Token list**: see all tokens with status (active/inactive), connection info, and last-used timestamp.
-- **Create token**: enter a name and optionally configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
-- **Edit token**: rename a token, toggle its active state, or update its database connection (the password field stays empty and keeps the stored password unless you type a new one).
+- **OAuth assignments** (only with OAuth): map groups or e-mails to a default database connection, client-connection mode, the admin role and the [read-only](#read-only-tokens-and-assignments) flag; assignments from environment variables are listed read-only.
+- **Token list**: see all tokens with status (active/inactive), connection info, markers for read-only tokens and tokens whose clients may send their own connection, and the last-used timestamp.
+- **Create token**: enter a name, optionally allow client-supplied connections, switch on *Read-only* (no `execute` tool, see [read-only](#read-only-tokens-and-assignments)) and configure a custom PostgreSQL connection. The generated token value is shown once — copy it before closing.
+- **Edit token**: rename a token, toggle its active state or *Read-only* (also for open sessions), or update its database connection (the password field stays empty and keeps the stored password unless you type a new one).
 - **Delete token**: permanently removes the token record and immediately revokes access.
 
 The session is stored in `sessionStorage` (cleared when the browser tab is closed).
 
-**Token list** — status, per-token connection (server default or own database) and last use at a glance:
+**Token list** — status, per-token connection (server default or own database), read-only marker and last use at a glance:
 
 ![Admin UI: token list](docs/images/admin-tokens.png)
 
