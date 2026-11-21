@@ -20,6 +20,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - **Single sign-on with OAuth 2.0 / OpenID Connect** (Microsoft Entra ID, Keycloak, Okta, …) as an alternative: MCP clients send an access token, the admin UI offers SSO login. Deny by default — a user's **group or e-mail decides access and the default database connection**, configurable by environment variables and in the admin UI ([OAuth](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md))
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](https://github.com/Tommi2Day/pg-mcp-server#client-supplied-connections))
+- **Read-only tokens and assignments** — `read_only` removes the `execute` tool for a token or an OAuth assignment (or `PG_READ_ONLY` for everyone); switched at runtime ([details](https://github.com/Tommi2Day/pg-mcp-server#read-only-tokens-and-assignments))
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](https://github.com/Tommi2Day/pg-mcp-server#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh` (also for the OAuth assignments)
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](https://github.com/Tommi2Day/pg-mcp-server#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
@@ -29,6 +30,7 @@ Connects AI assistants (Claude, Copilot, …) to PostgreSQL via the Model Contex
 - HTTPS with own certificates, auto-generated self-signed certs (renewed before expiry) and optional **mTLS** for clients
 - TLS to PostgreSQL incl. server-cert verification (`PG_SSL=verify`) and client certificates
 - Container runs as non-root (uid 1000), no privilege escalation, all capabilities dropped in Kubernetes
+- Hardened by default: the HTTP server refuses to start without authentication (`ALLOW_ANONYMOUS`), sessions are bound to the client that opened them, failed logins are throttled per IP (HTTP 429), the token store is `0600` with an scrypt-derived key, and the image is scanned with Trivy in CI ([details](https://github.com/Tommi2Day/pg-mcp-server#security-hardening))
 
 **Audit logging**
 - Every tool call with token name (with OAuth: the **user's e-mail**, also visible as `application_name` in `pg_stat_activity`), client IP and parameters; session start/stop with duration
@@ -107,7 +109,7 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty = auth disabled, unless `OAUTH_ISSUER` is set) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty and no `OAUTH_ISSUER`: the HTTP server refuses to start unless `ALLOW_ANONYMOUS=true`) |
 | `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …): issuer URL, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0`. With OAuth on and no `AUTH_TOKEN`, auth is **not** disabled ([details](https://github.com/Tommi2Day/pg-mcp-server/blob/main/docs/oauth.md)) |
 | `OAUTH_AUDIENCE` | `OAUTH_CLIENT_ID` | Accepted `aud` values of access tokens, comma separated (Entra: `api://<app-id>`) |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | – | App registration for the admin UI single sign-on (secret omitted for public clients; PKCE is always used) |
@@ -124,6 +126,9 @@ claude mcp add --transport http postgresql http://localhost:3000/mcp \
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
 | `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
+| `ALLOW_ANONYMOUS` | – | `true` lets `TRANSPORT=http` start without `AUTH_TOKEN`/OAuth (development only) |
+| `PG_READ_ONLY` | – | `true` disables the `execute` tool for all clients; tokens and OAuth assignments have a `read_only` flag of their own |
+| `AUTH_MAX_FAILURES` / `AUTH_FAILURE_WINDOW` | `20` / `60` | Failed authentications per client IP and window (seconds) before HTTP 429; `0` disables |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
 | `TLS_CERT_FILE` | `/certs/tls.crt` | Server certificate (PEM) |

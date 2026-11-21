@@ -6,6 +6,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-21
+
+Security hardening release. **Read "Changed" before upgrading:** an HTTP server without
+`AUTH_TOKEN`/OAuth no longer starts.
+
+### Added
+- **Read-only tokens and assignments:** `read_only` flag on file tokens and OAuth assignments, and `PG_READ_ONLY=true`
+  for everyone. The `execute` tool is hidden and refused (`[AUTH] … reason="read-only"`); `query` was already read-only.
+  A change applies to open sessions with their next request; a user matching several assignments is read-only if any
+  of them is. Admin UI: *Read-only* toggle in the token and assignment forms plus a marker in the lists; REST API and
+  OpenAPI spec (`read_only` on tokens and assignments); `admincli.sh`: `--read-only` for `add-token` / `add-assignment`,
+  `set-read-only <id> true|false`, `set-assignment-read-only <id> true|false`, an `RO` column in the lists and
+  `Read-only` in `show-token`
+- **TLS verification for token and client connections:** `ssl: "verify"` (`X-Pg-Ssl: verify`) validates the PostgreSQL
+  server certificate against the system CAs or `PG_SSL_CA_FILE`. `ssl: true` keeps encrypting without verification
+- **Failed-login throttle** per client IP: HTTP 429 with `Retry-After` after `AUTH_MAX_FAILURES` (default 20, `0` = off)
+  failures within `AUTH_FAILURE_WINDOW` seconds (default 60)
+- `ALLOW_ANONYMOUS` (Helm: `auth.allowAnonymous`) and Helm `server.readOnly` (`PG_READ_ONLY`)
+- **Docker image scan:** CI job `image-scan` and a gate before the push in `release.yml` run Trivy and fail on fixable
+  HIGH/CRITICAL vulnerabilities, secrets or Dockerfile misconfigurations (`aquasecurity/trivy-action` pinned to a commit)
+- Integration tests for read-only tokens, assignments (fake IdP) and `PG_READ_ONLY`, and for session binding on real
+  PostgreSQL; documentation: [README](README.md#security-hardening), [docs/oauth.md](docs/oauth.md)
+
+### Changed
+- **Breaking:** `TRANSPORT=http` exits at startup without `AUTH_TOKEN` or `OAUTH_ISSUER` unless `ALLOW_ANONYMOUS=true`
+  is set — an unauthenticated server exposes the database and the admin API. Docker: pass `-e AUTH_TOKEN=…` (or
+  `ALLOW_ANONYMOUS=true` for development); `docker-compose.yml` passes the variable through; Helm: set `auth.token`,
+  `auth.existingSecret` or `auth.allowAnonymous`. The stdio transport is unaffected
+- `STORE_ENCRYPTION_KEY` is stretched with scrypt (`enc:v2:`). Existing `enc:v1:` values are still read and
+  re-encrypted at startup — after that, older versions can no longer read the token store
+- The token store file is written with mode `0600` (and chmod'ed on every write)
+- The admin page is served with `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` and `Cache-Control: no-store`
+
+### Security
+- MCP sessions are bound to the principal that opened them: resuming an `mcp-session-id` with another token or user is
+  answered with 403 (`reason="session belongs to another principal"`)
+- Pending OAuth logins (`/auth/login`, unauthenticated) are capped; an oversized request body closes the connection
+- Fixed a stale comment: `POST /auth/logout` is the only logout route
+
 ## [1.1.0] - 2026-11-14
 
 ### Added
@@ -334,7 +374,8 @@ token management with Admin UI, Docker image and Helm chart on GHCR. Combines th
 ### Added
 - Initial release: PostgreSQL MCP server with stdio and HTTP(S) transport, Docker image, Helm chart, `run.sh` and coverage scripts, CI and release workflows.
 
-[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.1.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.2.0...HEAD
+[1.2.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.4.0...1.0.0
 [0.4.0]: https://github.com/Tommi2Day/pg-mcp-server/compare/0.3.0...0.4.0

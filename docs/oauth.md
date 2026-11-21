@@ -43,7 +43,7 @@ Group names and e-mails are compared case-insensitively. Entra puts group **obje
 
 ## Assignments
 
-An assignment is `{ "group" | "user", "connection", "client_connection", "admin" }`:
+An assignment is `{ "group" | "user", "connection", "client_connection", "admin", "read_only" }`:
 
 ```json
 [
@@ -51,6 +51,7 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
     "connection": { "host": "reporting-db", "database": "reports", "user": "ro", "password": "…", "ssl": "true" } },
   { "user": "alice@example.com", "connection": { "host": "prod-db", "database": "app" }, "client_connection": "credentials" },
   { "user": "*@example.com" },
+  { "group": "aaaaaaaa-0000-0000-0000-000000000000", "read_only": true },
   { "group": "99999999-8888-7777-6666-555555555555", "admin": true }
 ]
 ```
@@ -62,6 +63,9 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
   to `PG_*` individually, as for tokens.
 - **`client_connection`** (`none` default, `credentials`, `full`) works as for tokens: it controls whether the user
   may override the connection with `X-Pg-*` headers on the `initialize` request ([README](../README.md#client-supplied-connections)).
+- **`read_only: true`**: the `execute` tool is hidden and refused for the user; a user matching several assignments
+  is read-only if any of them is (most restrictive wins). Changes apply to open sessions with their next request
+  ([README](../README.md#read-only-tokens-and-assignments)).
 - **User by object id:** `user` may also be the immutable object id (Entra `oid`, otherwise `sub`), e.g.
   `{ "user": "0f9c1c2e-…", "admin": true }`. Prefer this for admins: e-mail, `preferred_username` and `upn` are
   mutable attributes — keep `OAUTH_ALLOWED_ISSUERS` to your own tenant and don't trust e-mail matching with
@@ -82,7 +86,8 @@ An assignment is `{ "group" | "user", "connection", "client_connection", "admin"
 ./scripts/admincli.sh add-assignment --email alice@example.com --client-connection credentials
 ./scripts/admincli.sh add-assignment --group grp-admin --admin
 ./scripts/admincli.sh list-assignments        # also: show-/delete-assignment, set-/clear-assignment-conn,
-                                              #       set-assignment-client-conn, set-assignment-admin, whoami
+                                              #       set-assignment-client-conn, set-assignment-admin,
+                                              #       set-assignment-read-only, whoami
 ```
 
 ### Admin UI

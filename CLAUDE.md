@@ -32,8 +32,8 @@ docker compose up -d                       # MCP server + postgres-test containe
 docker compose down
 
 # Token management
-./scripts/admincli.sh list-tokens|add-token|delete-token|enable-token|disable-token|rename-token|set-conn|clear-conn
-./scripts/admincli.sh whoami|list-assignments|show-assignment|add-assignment|delete-assignment|set-assignment-conn|clear-assignment-conn|set-assignment-client-conn|set-assignment-admin   # OAuth assignments (/admin/assignments, /admin/me)
+./scripts/admincli.sh list-tokens|add-token|delete-token|enable-token|disable-token|rename-token|set-conn|clear-conn|set-client-conn|set-read-only
+./scripts/admincli.sh whoami|list-assignments|show-assignment|add-assignment|delete-assignment|set-assignment-conn|clear-assignment-conn|set-assignment-client-conn|set-assignment-admin|set-assignment-read-only   # OAuth assignments (/admin/assignments, /admin/me)
 ./scripts/test_token.sh <token> [schema]   # validate token + list tables
 
 # Helm
@@ -95,6 +95,10 @@ client credentials; without a token connection `ssl: "default"` keeps `buildPgSs
 cache key (`client: true`), are ref-counted in `clientPoolRefs` and ended with the last session; the permission is
 re-checked per request (`sessionClientConnections`).
 
+### Read-only, session binding, throttle
+
+`read_only` (token/assignment field, `PG_READ_ONLY` env) → `checkAuth` returns `readOnly`; `startSession` creates a `{ readOnly }` state object shared with `createMcpServer` (hides and refuses `execute`) and `resumeSession` refreshes it on every request, so admin changes apply to open sessions. OAuth: the most restrictive matching assignment wins (`resolveAccess`). Sessions are bound to their opener (`sessionOwners`, `ownerOf`): another principal gets 403. Failed auth attempts are throttled per IP in `lib.js` (`AUTH_MAX_FAILURES`/`AUTH_FAILURE_WINDOW`, 429). `TRANSPORT=http` refuses to start without auth unless `ALLOW_ANONYMOUS=true`. Token/client `ssl: "verify"` verifies the server certificate (`true` does not). Store encryption is `enc:v2:` (scrypt); `enc:v1:` is still read and migrated.
+
 ### Tool handlers
 
 `CallTool` dispatches via `TOOL_HANDLERS` (tool name → `tool<Name>(dbPool, args)`, module level in `index.js`); a new tool needs an entry there and in `ListTools`. Keep the cognitive complexity of every function below 15 (Sonar S3776, also for the script in `admin.html`) — split into helpers instead of growing `switch`/`if` chains.
@@ -143,7 +147,7 @@ All structured log lines go through `log(level, category, message)` in `lib.js` 
 
 ### Docker entrypoint
 
-The Dockerfile is multi-stage: a `deps` stage runs `npm ci --omit=dev`, the final stage copies `node_modules` and removes npm/npx/corepack (unused at runtime, they carry CVEs of their own bundled packages) and runs `apk upgrade` for patched Alpine libraries. Don't call `npm` inside the container. Check the image with `trivy image` after changes.
+The Dockerfile is multi-stage: a `deps` stage runs `npm ci --omit=dev`, the final stage copies `node_modules` and removes npm/npx/corepack (unused at runtime, they carry CVEs of their own bundled packages) and runs `apk upgrade` for patched Alpine libraries. Don't call `npm` inside the container. Check the image with `trivy image` after changes (CI job `image-scan` and the `docker` job of `release.yml` run it and fail on fixable HIGH/CRITICAL findings; rebuild with `--no-cache --pull` locally, a cached `apk upgrade` layer shows stale OS CVEs).
 
 The image runs as `node` (uid 1000) from the start (`USER node` in the Dockerfile, `/certs` and `/data` pre-chowned to `node:node`) — no root step. `docker-entrypoint.sh` handles TLS certs (generates a self-signed one if `/certs` is empty) and `exec node src/index.js`. Mounted certs/volumes must already be readable/writable by uid 1000 (or use `fsGroup: 1000`, as set in the Helm chart) since the container can no longer `chown` them. Token store persistence requires a volume mounted at the `TOKENS_FILE` directory (default `/data`).
 

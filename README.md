@@ -23,6 +23,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - **Single sign-on with OAuth 2.0 / OpenID Connect** (Microsoft Entra ID, Keycloak, Okta, …) as an alternative: MCP clients send an access token, the admin UI offers SSO login. Deny by default — a user's **group or e-mail decides access and the default database connection**, configurable by environment variables and in the admin UI ([OAuth](docs/oauth.md))
 - **Per-token database connection** — one server instance serves several databases / DB users; each token is routed to its own connection pool
 - **Client-supplied connections** (opt-in per token): clients log in with their own database account or choose the database via `X-Pg-*` headers ([details](#client-supplied-connections))
+- **Read-only tokens and assignments** — `read_only` removes the `execute` tool for a token or an OAuth assignment (or `PG_READ_ONLY` for everyone); switched at runtime, also in open sessions ([details](#read-only-tokens-and-assignments))
 - Tokens can be created, renamed, disabled and deleted at runtime — via **web Admin UI** (`/admin`, [screenshots](#admin-ui)), REST API (OpenAPI spec included) or `admincli.sh` (also for the OAuth assignments)
 - Admin UI in your **corporate design**: own logo and colors without rebuilding the image ([branding](#admin-ui-branding))
 - Tokens stored only as SHA-256 hashes, constant-time comparison; per-token DB passwords encrypted at rest (AES-256-GCM, `STORE_ENCRYPTION_KEY`)
@@ -32,6 +33,7 @@ Connects AI to PostgreSQL via the Model Context Protocol (MCP).
 - HTTPS with own certificates, auto-generated self-signed certs (renewed before expiry) and optional **mTLS** for clients
 - TLS to PostgreSQL incl. server-cert verification (`PG_SSL=verify`) and client certificates
 - Container runs as non-root (uid 1000), no privilege escalation, all capabilities dropped in Kubernetes
+- Hardened by default: the HTTP server refuses to start without authentication (`ALLOW_ANONYMOUS`), sessions are bound to the client that opened them, failed logins are throttled per IP (HTTP 429), the token store is `0600` with an scrypt-derived key, the admin UI is served with CSP and no framing, and the Docker image is scanned with Trivy in CI ([details](#security-hardening))
 
 **Audit logging**
 - Every tool call with token name (with OAuth: the **user's e-mail**, also visible as `application_name` in `pg_stat_activity`), client IP and parameters; session start/stop with duration
@@ -79,7 +81,7 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 |----------|---------|-------------|
 | `TRANSPORT` | `stdio` | `stdio` or `http` |
 | `PORT` | `3000` | HTTP(S) port |
-| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty = auth disabled, unless `OAUTH_ISSUER` is set) |
+| `AUTH_TOKEN` | – | Admin token for `/mcp` and `/admin/tokens` — also the break-glass access next to OAuth (empty and no `OAUTH_ISSUER`: the HTTP server refuses to start unless `ALLOW_ANONYMOUS=true`) |
 | `OAUTH_ISSUER` | – | Enables OAuth 2.0 / OIDC (Microsoft Entra ID, Keycloak, …): issuer URL, e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0`. With OAuth on and no `AUTH_TOKEN`, auth is **not** disabled ([details](docs/oauth.md)) |
 | `OAUTH_AUDIENCE` | `OAUTH_CLIENT_ID` | Accepted `aud` values of access tokens, comma separated (Entra: `api://<app-id>`) |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | – | App registration for the admin UI single sign-on (secret omitted for public clients; PKCE is always used) |
@@ -95,7 +97,10 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 | `ADMIN_THEME_CSS` | – | CSS file loaded after the built-in admin UI styles ([branding](#admin-ui-branding)) |
 | `ADMIN_LOGO` | – | Admin UI logo: file (`.svg` `.png` `.jpg` `.gif` `.webp`, embedded) or `http(s)://` URL |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. SQL text of `query`/`execute` is only logged at `debug` |
-| `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords. Set before adding tokens with passwords. |
+| `STORE_ENCRYPTION_KEY` | – | Passphrase for AES-256-GCM encryption of stored connection passwords (key derived with scrypt; use a long random value). Set before adding tokens with passwords. |
+| `ALLOW_ANONYMOUS` | – | `true` lets `TRANSPORT=http` start without `AUTH_TOKEN`/OAuth (development only) |
+| `PG_READ_ONLY` | – | `true` disables the `execute` tool for all clients; tokens and OAuth assignments have a `read_only` flag of their own |
+| `AUTH_MAX_FAILURES` / `AUTH_FAILURE_WINDOW` | `20` / `60` | Failed authentications per client IP and window (seconds) before HTTP 429; `0` disables |
 | `TOKENS_FILE` | `./tokens.json` | Path to the JSON file that stores tokens and their connection configs |
 | `TLS_ENABLED` | `false` | `true` → HTTPS, `false` → HTTP |
 | `TLS_CERT_FILE` | `/certs/tls.crt` | Server certificate (PEM) |
@@ -259,7 +264,9 @@ Key variables in `.env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_TOKEN` | _(empty)_ | Admin bearer token; leave empty to disable auth |
+| `AUTH_TOKEN` | _(empty)_ | Admin bearer token; required unless `ALLOW_ANONYMOUS=true` (or OAuth is configured) |
+| `ALLOW_ANONYMOUS` | _(empty)_ | `true` lets the server start without `AUTH_TOKEN`/OAuth — development only |
+| `PG_READ_ONLY` | _(empty)_ | `true` disables the `execute` tool for all clients |
 | `MCP_SERVER_NAME` | `pg-mcp-server` | Server name shown in MCP clients and the Admin UI; prefix of the database `application_name` |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `STORE_ENCRYPTION_KEY` | _(empty)_ | Passphrase for AES-256-GCM encryption of stored connection passwords |
@@ -696,7 +703,7 @@ Token values are stored as SHA-256 hashes in a local JSON file (`TOKENS_FILE`); 
 
 Each file token can optionally have its own PostgreSQL connection. When a token has no custom connection, it uses the server's default connection (`PG_HOST` / `PG_DATABASE` / … env vars).
 
-No `AUTH_TOKEN` set (and no OAuth) → auth is completely disabled (local/dev only). The admin UI still works but does not require a token.
+No `AUTH_TOKEN` set (and no OAuth) → the HTTP server **refuses to start**, because an unauthenticated server exposes the database and the admin API to anyone. `ALLOW_ANONYMOUS=true` runs it without authentication on purpose (local/dev only): the admin UI then needs no token and `execute` is open to everyone — combine it with `PG_READ_ONLY=true` for a harmless demo. The stdio transport has no authentication by design (the client starts the process).
 
 ### OAuth 2.0 / OpenID Connect (Microsoft Entra ID)
 
@@ -722,6 +729,35 @@ OAUTH_ADMIN_GROUPS=<admin-group-object-id>  OAUTH_ALLOWED_GROUPS=<user-group-obj
 Full reference, Entra setup steps and security notes: [docs/oauth.md](docs/oauth.md). To try single sign-on yourself,
 [docs/oauth.md](docs/oauth.md#trying-it-locally-with-keycloak) starts the whole stack with a Keycloak realm (admin
 console, users and groups included).
+
+### Read-only tokens and assignments
+
+`"read_only": true` on a token or an OAuth assignment removes the `execute` tool for its clients: it is no longer
+listed and a call is refused (`[AUTH] … action="execute" … reason="read-only"`). `query` and the performance tools
+keep working; `query` always runs in a read-only transaction, so PostgreSQL itself rejects writes through it.
+
+| Scope | How to set it |
+|-------|---------------|
+| One token | Admin UI toggle *Read-only*, or `read_only` in `POST` / `PATCH /admin/tokens` |
+| One OAuth assignment | Admin UI, `/admin/assignments`, or `"read_only": true` in `OAUTH_ASSIGNMENTS`. A user matching several assignments is read-only if **any** of them is (the most restrictive wins) |
+| Everyone | `PG_READ_ONLY=true` — also the `AUTH_TOKEN`, anonymous access and stdio mode (Helm: `server.readOnly`) |
+
+Changes take effect for open sessions with their next request. The flag limits the MCP tools, it does not replace a
+least-privilege database role: give the PostgreSQL user only the grants it needs (for example `pg_read_all_data`),
+a superuser can still call privileged functions in a read-only transaction. Set it with `admincli.sh add-token … --read-only` / `set-read-only <id> true|false`, `add-assignment … --read-only` /
+`set-assignment-read-only <id> true|false`, in the admin UI or through the REST API.
+
+### Security hardening
+
+| Measure | Behaviour |
+|---------|-----------|
+| No unauthenticated HTTP | `TRANSPORT=http` exits at startup without `AUTH_TOKEN` or `OAUTH_ISSUER`, unless `ALLOW_ANONYMOUS=true` |
+| Sessions bound to their owner | Resuming an `mcp-session-id` with another token or user returns 403 (`reason="session belongs to another principal"`) |
+| Failed-login throttle | More than `AUTH_MAX_FAILURES` (default 20, `0` = off) failed attempts per client IP within `AUTH_FAILURE_WINDOW` seconds (default 60) get HTTP 429 with `Retry-After`. Requests without a token are not counted. Behind a reverse proxy make sure it sets `X-Real-IP` / `X-Forwarded-For` itself, otherwise clients can spoof the address |
+| TLS to PostgreSQL | The `ssl` field of a token or assignment connection (and `X-Pg-Ssl`) is `false`, `true` (encrypted, certificate **not** verified) or `verify` (certificate checked against the system CAs or `PG_SSL_CA_FILE`). Use `verify` on untrusted networks |
+| Token store | Written with mode `0600`; passwords encrypted with a key derived by scrypt from `STORE_ENCRYPTION_KEY` (`enc:v2:`, `enc:v1:` values from older versions are migrated at startup) — use a long random value |
+| Admin UI | Served with `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`; pending OAuth logins are capped and oversized request bodies close the connection |
+| Image | Trivy scans the Docker image in CI and before each release push (fixable HIGH/CRITICAL findings fail the build) |
 
 ### Client-supplied connections
 
@@ -835,14 +871,14 @@ The session is stored in `sessionStorage` (cleared when the browser tab is close
 <table>
   <tr>
     <td width="50%" valign="top"><b>Login with single sign-on</b><br><img src="docs/images/admin-login-sso.png" alt="Admin UI: login page with the single sign-on button"></td>
-    <td width="50%" valign="top"><b>New assignment: group, admin role, client-supplied connection, default connection</b><br><img src="docs/images/admin-assignment-edit.png" alt="Admin UI: new assignment dialog"></td>
+    <td width="50%" valign="top"><b>New assignment: group, admin role, client-supplied connection, read-only, default connection</b><br><img src="docs/images/admin-assignment-edit.png" alt="Admin UI: new assignment dialog"></td>
   </tr>
 </table>
 
 <table>
   <tr>
     <td width="33%" valign="top"><b>Login</b><br><img src="docs/images/admin-login.png" alt="Admin UI: login"></td>
-    <td width="33%" valign="top"><b>New token with its own DB connection</b><br><img src="docs/images/admin-create-token.png" alt="Admin UI: create token with custom connection"></td>
+    <td width="33%" valign="top"><b>New token: read-only, with its own DB connection</b><br><img src="docs/images/admin-create-token.png" alt="Admin UI: create token with custom connection"></td>
     <td width="33%" valign="top"><b>Token value is shown only once</b><br><img src="docs/images/admin-token-created.png" alt="Admin UI: one-time token display"></td>
   </tr>
 </table>
@@ -918,7 +954,7 @@ Tokens are persisted in a JSON file (default `./tokens.json`, configurable via `
 
 #### Password encryption
 
-Set `STORE_ENCRYPTION_KEY` to a passphrase to enable AES-256-GCM encryption of `connection.password` values at rest. Passwords are encrypted on save and decrypted transparently on load. On startup the server migrates any plaintext passwords it finds in the file — no manual step required.
+Set `STORE_ENCRYPTION_KEY` to a passphrase to enable AES-256-GCM encryption of `connection.password` values at rest. Passwords are encrypted on save and decrypted transparently on load. The key is derived from the passphrase with scrypt — use a long random value (`openssl rand -hex 32`), a short phrase can be brute-forced from a stolen file. On startup the server migrates plaintext passwords and `enc:v1:` values of earlier versions it finds in the file — no manual step required. The file is written with mode `0600`.
 
 ```bash
 export STORE_ENCRYPTION_KEY="my-secret-passphrase"
@@ -954,7 +990,7 @@ EOF
 ./scripts/admincli.sh health                        # server health status + TLS flag (no auth required)
 
 # Token management
-./scripts/admincli.sh list-tokens                   # list all tokens (CONN column shows per-token connection)
+./scripts/admincli.sh list-tokens                   # list all tokens (CONN: per-token connection, RO: read-only)
 ./scripts/admincli.sh show-token <id>               # full details for one token, including connection config
 ./scripts/admincli.sh add-token "claude-desktop"    # create new token (plaintext shown once)
 ./scripts/admincli.sh delete-token <id>             # permanently delete token
@@ -972,6 +1008,8 @@ PG_HOST=db.example.com PG_DATABASE=mydb PG_USER=u PG_PASSWORD=p \
 
 ./scripts/admincli.sh set-conn <id> '{"host":"db.example.com","port":5432,"database":"mydb","user":"u","password":"p"}'
 ./scripts/admincli.sh clear-conn <id>               # reset to default admin connection
+./scripts/admincli.sh add-token "reporting" --read-only   # token without the execute tool
+./scripts/admincli.sh set-read-only <id> true|false   # switch it later (open sessions follow)
 ```
 
 `add-token` connection flags: `--host`, `--port`, `--database`, `--user`, `--password`, `--ssl`.  
@@ -991,12 +1029,13 @@ Flags take precedence over the corresponding `PG_*` env vars. Omit all connectio
 ./scripts/admincli.sh clear-assignment-conn <id>    # back to the server default connection
 ./scripts/admincli.sh set-assignment-client-conn <id> none|credentials|full
 ./scripts/admincli.sh set-assignment-admin <id> true|false
+./scripts/admincli.sh set-assignment-read-only <id> true|false   # removes / restores the execute tool
 ./scripts/admincli.sh delete-assignment <id>
 ```
 
 `add-assignment` takes either `--group` (name or object id from the groups claim) or `--email` (e-mail, object id or `*@domain`),
 the connection flags of `add-token` — only the given ones are sent, the server fills the rest from `PG_*` — plus `--admin`,
-`--client-connection` and `--note`. `ADMIN_TOKEN` is accepted as an alias of `AUTH_TOKEN`; with OAuth the access token (JWT) of an
+`--read-only`, `--client-connection` and `--note`. `ADMIN_TOKEN` is accepted as an alias of `AUTH_TOKEN`; with OAuth the access token (JWT) of an
 admin user works as `AUTH_TOKEN`, too.
 
 ### Validate a token with `test_token.sh`
@@ -1097,7 +1136,7 @@ With `LOG_LEVEL=debug` the full SQL text is logged:
 |----------|-------|------|
 | `[MCP]` | info / error | MCP tool call (success and error); `action="get_prompt"` with the prompt name for `prompts/get`. Token name is `"admin"` for the env token, `"anonymous"` when auth is disabled, `"stdio"` in stdio mode, or the file token's name. `params` is omitted for tools with no arguments. The `sql` parameter is replaced by its length unless `LOG_LEVEL=debug`. |
 | `[SESSION]` | info | HTTP MCP session start and stop (with duration). Stop is logged when the client ends the session (`DELETE /mcp`) or the transport closes; clients that just disappear produce no stop line. |
-| `[AUTH]` | warn | Rejected request (401/403). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name), or `oauth: …` (expired token, wrong audience, no assignment, not an admin, …). The presented token is never logged. |
+| `[AUTH]` | warn | Rejected request (401/403/429). `reason` is `missing token`, `invalid admin token`, `unknown token` or `token disabled` (with the token name), `too many failed attempts` (HTTP 429), `session belongs to another principal` (403), `read-only` (an `execute` call of a read-only token, `action="execute"`), or `oauth: …` (expired token, wrong audience, no assignment, not an admin, …). The presented token is never logged. |
 | `[AUDIT]` | info | OAuth users: `login` / `logout` of the admin UI, `session_start` of MCP sessions, changing admin API calls — with e-mail and subject ([docs/oauth.md](docs/oauth.md#audit)). |
 | `[ADMIN]` | info / error | Admin API request. `token="admin"` when authenticated with `AUTH_TOKEN`, `token="anonymous"` when auth is disabled. Stack traces of admin errors at `debug`. |
 | `[STORE]` | info / warn | Password migration and missing `STORE_ENCRYPTION_KEY`. |
@@ -1148,7 +1187,7 @@ The token store is a plain JSON file. The server reads and writes it automatical
 
 `connection: null` means the token uses the server's default PostgreSQL connection. An optional
 `"client_connection": "credentials"` or `"full"` allows its clients to send their own connection parameters
-([client-supplied connections](#client-supplied-connections)). The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored. When `STORE_ENCRYPTION_KEY` is set, `connection.password` is stored as `enc:v1:<iv>:<tag>:<ciphertext>` (AES-256-GCM); otherwise it is stored in plaintext.
+([client-supplied connections](#client-supplied-connections)). An optional `"read_only": true` removes the `execute` tool ([read-only tokens](#read-only-tokens-and-assignments)). `connection.ssl` is `false` (default), `true` (TLS, certificate not verified) or `verify` (TLS with certificate check, see [hardening](#security-hardening)). The `token_hash` field is a SHA-256 hex digest — the plaintext token is never stored. When `STORE_ENCRYPTION_KEY` is set, `connection.password` is stored as `enc:v2:<iv>:<tag>:<ciphertext>` (AES-256-GCM, key derived with scrypt; `enc:v1:` values of earlier versions are still read and re-encrypted at startup); otherwise it is stored in plaintext.
 
 ## Automated Updates
 
