@@ -40,6 +40,7 @@ Security hardening release. **Read "Changed" before upgrading:** an HTTP server 
 - The token store file is written with mode `0600` (and chmod'ed on every write)
 - The admin page is served with `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store`
+- License is Apache-2.0 (was MIT): the `LICENSE` file changed in 1.2.0, now `package.json`, `package-lock.json`, `openapi.json` (`info.license`) and the README say so too. Releases up to 1.1.0 were published under MIT
 
 ### Security
 - MCP sessions are bound to the principal that opened them: resuming an `mcp-session-id` with another token or user is
