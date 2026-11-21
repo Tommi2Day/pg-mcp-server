@@ -59,7 +59,7 @@ Most PostgreSQL MCP servers are built for **one developer on one machine**: star
 | Abuse protection | Usually none | Failed logins throttled per IP, sessions bound to their owner, refuses to start without authentication, Docker image scanned with Trivy in CI |
 | Tested against | Rarely more than unit tests | Real PostgreSQL, a mock OIDC server and Keycloak in Docker containers (CI) |
 
-Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived) (stdio only, a single read-only `query` tool), this server adds schema tools, a separate write tool, remote transport and everything above.
+Compared to the archived reference server [`@modelcontextprotocol/server-postgres`](https://github.com/modelcontextprotocol/servers-archived/tree/main/src/postgres) (stdio only, a single read-only `query` tool; npm marks it as deprecated: archived and unmaintained, no security guarantees), this server adds schema tools, a separate write tool, remote transport and everything above.
 
 **When to choose something else:** the performance tools cover plans, workload statistics from `pg_stat_statements`, index and table health. For index recommendations verified with hypothetical indexes, look at [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp); for several database engines (MySQL, SQL Server, SQLite, …) behind one server, look at [DBHub](https://github.com/bytebase/dbhub). pg-mcp-server focuses on secure, audited, multi-user SQL access to PostgreSQL.
 
