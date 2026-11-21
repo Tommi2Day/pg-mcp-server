@@ -204,6 +204,8 @@ describe.skipIf(!HOST)("PostgreSQL integration (sample databases)", () => {
         { group: "grp-sales", connection: conn(SALES) },
         { group: "grp-hr", connection: conn(HR) },
         { user: "carol@example.com", connection: conn(SALES), client_connection: "credentials" },
+        { group: "grp-ro", connection: conn(SALES), read_only: true },
+        { group: "grp-rw", connection: conn(SALES) },
       ]),
     };
 
@@ -311,6 +313,36 @@ describe.skipIf(!HOST)("PostgreSQL integration (sample databases)", () => {
       expect(logs.join("\n")).toMatch(/\[AUTH\] result="denied" token="dave@example\.com"[^\n]*oauth: no assignment/);
     });
 
+    describe("read_only assignments", () => {
+      const toolNames = async (client) => (await client.listTools()).tools.map(t => t.name);
+      const exec = (client, q) => client.callTool({ name: "execute", arguments: { sql: q } });
+      beforeEach(async () => { await runSql(SALES, ["DROP TABLE IF EXISTS ro_probe", "CREATE TABLE ro_probe(id int)"]); });
+      afterEach(async () => { await runSql(SALES, ["DROP TABLE IF EXISTS ro_probe"]); });
+
+      it("a read-only assignment hides and refuses execute, but still reads", async () => {
+        const ro = await open({ email: "erin@example.com", groups: ["grp-ro"] });
+        expect(await toolNames(ro)).not.toContain("execute");
+        const r = await exec(ro, "INSERT INTO ro_probe VALUES (1)");
+        expect(r.isError).toBe(true);
+        expect(text(r)).toMatch(/read-only/);
+        expect(await sql(ro, "SELECT count(*) AS n FROM ro_probe")).toMatch(/\b0\b/);
+        expect(logs.join("\n")).toMatch(/\[AUTH\] result="denied" token="erin@example\.com" action="execute"[^\n]*reason="read-only"/);
+      });
+
+      it("a normal assignment may execute", async () => {
+        const rw = await open({ email: "frank@example.com", groups: ["grp-rw"] });
+        expect(await toolNames(rw)).toContain("execute");
+        expect((await exec(rw, "INSERT INTO ro_probe VALUES (1)")).isError).toBeFalsy();
+        expect(await sql(rw, "SELECT count(*) AS n FROM ro_probe")).toMatch(/\b1\b/);
+      });
+
+      it("the most restrictive matching assignment wins (member of a read-only and a read-write group)", async () => {
+        const both = await open({ email: "gina@example.com", groups: ["grp-rw", "grp-ro"] });
+        expect(await toolNames(both)).not.toContain("execute");
+        expect((await exec(both, "INSERT INTO ro_probe VALUES (1)")).isError).toBe(true);
+      });
+    });
+
     it("audits the MCP session and logs the tool calls with the user's e-mail", async () => {
       const alice = await open({ email: "alice@example.com", oid: "oid-alice", groups: ["grp-sales"] });
       await sql(alice, "SELECT 1");
@@ -318,6 +350,108 @@ describe.skipIf(!HOST)("PostgreSQL integration (sample databases)", () => {
       expect(all).toMatch(/\[INFO\] \[AUDIT\] user="alice@example\.com" sub="oid-alice" action="session_start" session="[\w-]+" via="oauth"/);
       expect(all).toMatch(/\[SESSION\] token="alice@example\.com" action="start"/);
       expect(all).toMatch(/\[MCP\] token="alice@example\.com" action="query"/);
+    });
+  });
+  // ── 3. Read-only tokens (admin API) and PG_READ_ONLY over HTTP ──────────────
+  describe("HTTP: read_only tokens and PG_READ_ONLY", () => {
+    let srv; let base; let dir; let logs; const clients = [];
+    const saved = {};
+    const ADMIN = "it-admin-token";
+
+    beforeAll(async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "pgmcp-ro-"));
+      srv = http.createServer(handleRequest);
+      await new Promise(r => srv.listen(0, "127.0.0.1", r));
+      base = `http://127.0.0.1:${srv.address().port}`;
+    });
+    afterAll(async () => {
+      await new Promise(r => srv.close(r));
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+    beforeEach(async () => {
+      for (const k of ["AUTH_TOKEN", "TOKENS_FILE", "PG_HOST", "PG_READ_ONLY", "PG_DATABASE", "OAUTH_ISSUER"]) saved[k] = process.env[k];
+      Object.assign(process.env, { AUTH_TOKEN: ADMIN, TOKENS_FILE: path.join(dir, "tokens.json"), PG_HOST: HOST, PG_DATABASE: SALES });
+      delete process.env.PG_READ_ONLY; delete process.env.OAUTH_ISSUER;
+      process.env.PG_PORT = String(PORT); process.env.PG_USER = SUPER.user; process.env.PG_PASSWORD = SUPER.password;
+      clearTokenStoreCache(); clearOAuthCache();
+      logs = [];
+      vi.spyOn(console, "error").mockImplementation((m) => { logs.push(String(m)); });
+      await runSql(SALES, ["DROP TABLE IF EXISTS ro_probe", "CREATE TABLE ro_probe(id int)"]);
+    });
+    afterEach(async () => {
+      for (const c of clients.splice(0)) await c.close().catch(() => {});
+      sessions.clear();
+      vi.restoreAllMocks();
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      delete process.env.PG_PORT; delete process.env.PG_USER; delete process.env.PG_PASSWORD;
+      await runSql(SALES, ["DROP TABLE IF EXISTS ro_probe"]);
+    });
+
+    const admin = async (method, p, body) => {
+      const r = await fetch(base + p, { method, headers: { Authorization: `Bearer ${ADMIN}`, "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+      return r.json();
+    };
+    async function open(token) {
+      const client = new Client({ name: "it", version: "1" });
+      const transport = new StreamableHTTPClientTransport(new URL(base + "/mcp"), { requestInit: { headers: { Authorization: `Bearer ${token}` } } });
+      await client.connect(transport);
+      clients.push(client);
+      return { client, transport };
+    }
+    const names = async (c) => (await c.listTools()).tools.map(t => t.name);
+    const exec = (c, q) => c.callTool({ name: "execute", arguments: { sql: q } });
+    const count = async (c) => text(await c.callTool({ name: "query", arguments: { sql: "SELECT count(*) AS n FROM ro_probe" } }));
+
+    it("a read_only token cannot write: execute is hidden and refused, nothing is written, reads work", async () => {
+      const t = await admin("POST", "/admin/tokens", { name: "ro", read_only: true });
+      expect(t.read_only).toBe(true);
+      const { client } = await open(t.token);
+      expect(await names(client)).not.toContain("execute");
+      const r = await exec(client, "INSERT INTO ro_probe VALUES (1)");
+      expect(r.isError).toBe(true);
+      expect(text(r)).toMatch(/read-only/);
+      expect(await count(client)).toMatch(/\b0\b/);
+      const w = await client.callTool({ name: "query", arguments: { sql: "INSERT INTO ro_probe VALUES (2)" } });
+      expect(text(w)).toMatch(/read-only transaction/); // PostgreSQL itself refuses the write through `query`
+    });
+
+    it("the flag is switched at runtime for open sessions, both ways", async () => {
+      const rw = await admin("POST", "/admin/tokens", { name: "rw" });
+      const { client } = await open(rw.token);
+      expect((await exec(client, "INSERT INTO ro_probe VALUES (1)")).isError).toBeFalsy();
+      await admin("PATCH", `/admin/tokens/${rw.id}`, { read_only: true });
+      expect((await exec(client, "INSERT INTO ro_probe VALUES (2)")).isError).toBe(true);
+      expect(await names(client)).not.toContain("execute");
+      await admin("PATCH", `/admin/tokens/${rw.id}`, { read_only: false });
+      expect((await exec(client, "INSERT INTO ro_probe VALUES (3)")).isError).toBeFalsy();
+      expect(await count(client)).toMatch(/\b2\b/);
+    });
+
+    it("rejects a non-boolean read_only", async () => {
+      const r = await admin("POST", "/admin/tokens", { name: "bad", read_only: "yes" });
+      expect(r.error).toMatch(/read_only/);
+    });
+
+    it("PG_READ_ONLY=true makes every client read-only, including the admin token", async () => {
+      process.env.PG_READ_ONLY = "true";
+      const t = await admin("POST", "/admin/tokens", { name: "any" });
+      for (const token of [ADMIN, t.token]) {
+        const { client } = await open(token);
+        expect(await names(client)).not.toContain("execute");
+        expect((await exec(client, "INSERT INTO ro_probe VALUES (1)")).isError).toBe(true);
+      }
+      expect(logs.join("\n")).toMatch(/reason="read-only"/);
+    });
+
+    it("another token cannot resume a session it did not open", async () => {
+      const a = await admin("POST", "/admin/tokens", { name: "a" });
+      const b = await admin("POST", "/admin/tokens", { name: "b" });
+      const { transport } = await open(a.token);
+      const resp = await fetch(base + "/mcp", { method: "POST", headers: {
+        Authorization: `Bearer ${b.token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+        "mcp-session-id": transport.sessionId,
+      }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+      expect(resp.status).toBe(403);
     });
   });
 });

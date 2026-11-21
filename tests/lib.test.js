@@ -22,6 +22,7 @@ import {
   clientHeaderName,
   applyClientConnection,
   parseClientConnectionMode,
+  clearAuthThrottle,
 } from "../src/lib.js";
 
 // Clear cache and any unconsumed mockReturnValueOnce queue before every test.
@@ -231,7 +232,7 @@ describe("checkAuth", () => {
   it("returns { ok: true, name: 'anonymous', connection: null } when AUTH_TOKEN is not set", async () => {
     const req = makeReq("POST", "/mcp");
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "anonymous", connection: null, clientConnection: "none" });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "anonymous", connection: null, clientConnection: "none", readOnly: false });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
@@ -248,7 +249,7 @@ describe("checkAuth", () => {
     process.env.AUTH_TOKEN = "secret";
     const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer secret" } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "admin", connection: null, clientConnection: "none" });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "admin", connection: null, clientConnection: "none", readOnly: false });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
@@ -263,7 +264,7 @@ describe("checkAuth", () => {
     mockReadFile.mockReturnValueOnce(JSON.stringify(store));
     const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "claude-desktop", connection: null, clientConnection: "none" });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "claude-desktop", connection: null, clientConnection: "none", readOnly: false });
     expect(mockWriteFile).toHaveBeenCalled(); // last_used_at updated
   });
 
@@ -279,7 +280,7 @@ describe("checkAuth", () => {
     mockReadFile.mockReturnValueOnce(JSON.stringify(store));
     const req = makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
     const res = makeRes();
-    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "mytoken", connection, clientConnection: "none" });
+    expect(await checkAuth(req, res)).toEqual({ ok: true, name: "mytoken", connection, clientConnection: "none", readOnly: false });
   });
 
   it("returns the client_connection permission of file tokens and PG_CLIENT_CONNECTION for the admin token", async () => {
@@ -298,7 +299,7 @@ describe("checkAuth", () => {
       expect(await checkAuth(admin, makeRes())).toMatchObject({ name: "admin", clientConnection: "credentials" });
       process.env.PG_CLIENT_CONNECTION = "bogus";
       const admin2 = makeReq("POST", "/mcp", { headers: { authorization: "Bearer admin-secret" } });
-      expect(await checkAuth(admin2, makeRes())).toMatchObject({ clientConnection: "none" });
+      expect(await checkAuth(admin2, makeRes())).toMatchObject({ clientConnection: "none", readOnly: false });
     } finally {
       delete process.env.PG_CLIENT_CONNECTION;
     }
@@ -354,7 +355,7 @@ describe("token store encryption", () => {
     process.env.STORE_ENCRYPTION_KEY = "test-key";
     saveTokenStore(storeWithPw("secret"));
     const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
-    expect(written.tokens[0].connection.password).toMatch(/^enc:v1:/);
+    expect(written.tokens[0].connection.password).toMatch(/^enc:v2:/);
     expect(written.tokens[0].connection.password).not.toContain("secret");
   });
 
@@ -438,7 +439,7 @@ describe("migrateTokenStore", () => {
     migrateTokenStore();
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
-    expect(written.tokens[0].connection.password).toMatch(/^enc:v1:/);
+    expect(written.tokens[0].connection.password).toMatch(/^enc:v2:/);
   });
 
   it("does nothing when all passwords are already encrypted", () => {
@@ -561,7 +562,7 @@ describe("clientConnectionFromHeaders", () => {
     expect(() => clientConnectionFromHeaders({ "x-pg-ssl-ca-file": "/etc/ca" }))
       .toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining("Unknown header X-Pg-Ssl-Ca-File") }));
     expect(() => clientConnectionFromHeaders({ "x-pg-port": "abc" })).toThrow(/port/);
-    expect(() => clientConnectionFromHeaders({ "x-pg-ssl": "verify" })).toThrow(/ssl/);
+    expect(() => clientConnectionFromHeaders({ "x-pg-ssl": "maybe" })).toThrow(/ssl/);
   });
   it("clientHeaderName", () => {
     expect(clientHeaderName("database")).toBe("X-Pg-Database");
@@ -611,5 +612,95 @@ describe("applyClientConnection", () => {
     expect(parseClientConnectionMode(undefined)).toBe("none");
     expect(parseClientConnectionMode(" FULL ")).toBe("full");
     expect(parseClientConnectionMode("all")).toBeNull();
+  });
+});
+
+// ── Security hardening ────────────────────────────────────────────────────────
+describe("security hardening", () => {
+  beforeEach(() => {
+    delete process.env.STORE_ENCRYPTION_KEY;
+    delete process.env.AUTH_MAX_FAILURES;
+    vi.clearAllMocks();
+    clearAuthThrottle();
+    clearTokenStoreCache();
+    mockReadFile.mockReset();
+    mockWriteFile.mockImplementation(() => {});
+  });
+  afterEach(() => {
+    delete process.env.STORE_ENCRYPTION_KEY;
+    delete process.env.AUTH_TOKEN;
+    delete process.env.AUTH_MAX_FAILURES;
+    delete process.env.PG_READ_ONLY;
+  });
+
+  const withPw = (password) => ({
+    tokens: [{ id: 1, name: "t", token_hash: "h", active: true, connection: { host: "h", password } }], next_id: 2,
+  });
+
+  it("writes the token store with mode 0600", () => {
+    saveTokenStore({ tokens: [], next_id: 1 });
+    expect(mockWriteFile.mock.calls[0][2]).toMatchObject({ mode: 0o600 });
+  });
+
+  it("reads legacy enc:v1 values and migrate re-encrypts them as enc:v2", () => {
+    process.env.STORE_ENCRYPTION_KEY = "legacy-key";
+    const key = crypto.createHash("sha256").update("legacy-key").digest();
+    const iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const ct = Buffer.concat([c.update("secret", "utf8"), c.final()]);
+    const v1 = `enc:v1:${iv.toString("hex")}:${c.getAuthTag().toString("hex")}:${ct.toString("hex")}`;
+    mockReadFile.mockReturnValue(JSON.stringify(withPw(v1)));
+    expect(loadTokenStore().tokens[0].connection.password).toBe("secret");
+    clearTokenStoreCache();
+    migrateTokenStore();
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1]);
+    expect(written.tokens[0].connection.password).toMatch(/^enc:v2:/);
+    clearTokenStoreCache();
+    mockReadFile.mockReturnValue(mockWriteFile.mock.calls[0][1]);
+    expect(loadTokenStore().tokens[0].connection.password).toBe("secret");
+  });
+
+  it("answers 429 after too many failed token attempts from one IP", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    process.env.AUTH_MAX_FAILURES = "3";
+    mockReadFile.mockReturnValue(JSON.stringify({ tokens: [], next_id: 1 }));
+    const attempt = () => {
+      const res = makeRes();
+      const req = makeReq("POST", "/mcp", { headers: { authorization: "Bearer wrong", "x-real-ip": "9.9.9.9" } });
+      return checkAuth(req, res).then(r => ({ r, res }));
+    };
+    for (let i = 0; i < 3; i++) expect((await attempt()).res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
+    const blocked = await attempt();
+    expect(blocked.r).toEqual({ ok: false });
+    expect(blocked.res.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({ "Retry-After": expect.any(String) }));
+    // another IP is unaffected, and so is the correct token from it
+    const ok = await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "Bearer admin-secret", "x-real-ip": "1.1.1.1" } }), makeRes());
+    expect(ok.ok).toBe(true);
+  });
+
+  it("does not count requests without a token as failed attempts", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    process.env.AUTH_MAX_FAILURES = "2";
+    for (let i = 0; i < 5; i++) {
+      const res = makeRes();
+      await checkAuth(makeReq("POST", "/mcp", { headers: { authorization: "", "x-real-ip": "7.7.7.7" } }), res);
+      expect(res.writeHead).toHaveBeenCalledWith(401, expect.any(Object));
+    }
+  });
+
+  it("reports readOnly for read_only tokens and PG_READ_ONLY", async () => {
+    process.env.AUTH_TOKEN = "admin-secret";
+    const plaintext = "ro-token";
+    const store = { tokens: [{ id: 1, name: "ro", token_hash: hashToken(plaintext), active: true, read_only: true, connection: null }], next_id: 2 };
+    mockReadFile.mockReturnValue(JSON.stringify(store));
+    const req = () => makeReq("POST", "/mcp", { headers: { authorization: `Bearer ${plaintext}` } });
+    expect(await checkAuth(req(), makeRes())).toMatchObject({ ok: true, readOnly: true });
+    process.env.PG_READ_ONLY = "true";
+    const admin = makeReq("POST", "/mcp", { headers: { authorization: "Bearer admin-secret" } });
+    expect(await checkAuth(admin, makeRes())).toMatchObject({ name: "admin", readOnly: true });
+  });
+
+  it("accepts X-Pg-Ssl: verify from clients", () => {
+    expect(clientConnectionFromHeaders({ "x-pg-user": "u", "x-pg-password": "p", "x-pg-ssl": "VERIFY" })).toMatchObject({ ssl: "verify" });
   });
 });

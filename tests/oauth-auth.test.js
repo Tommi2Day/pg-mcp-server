@@ -235,7 +235,7 @@ describe("admin API: assignments", () => {
     await call("POST", "/admin/assignments", { group: "g", connection: { host: "h", password: "topsecret" } });
     const written = mockWriteFile.mock.calls.at(-1)[1];
     expect(written).not.toContain("topsecret");
-    expect(written).toContain("enc:v1:");
+    expect(written).toContain("enc:v2:");
     clearTokenStoreCache();
     mockReadFile.mockImplementation(() => written);
     const { body } = await call("GET", "/admin/assignments");

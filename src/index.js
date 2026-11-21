@@ -75,7 +75,13 @@ export function applicationName(tokenName) {
 /** Build a simple ssl config from a token connection's ssl field (no file loading). */
 function sslFromValue(val) {
   if (!val || val === "false" || val === false || val === "0" || val === "no" || val === "prefer") return false;
-  return { rejectUnauthorized: false };
+  if (String(val).toLowerCase() === "verify") {
+    // Full verification: system CAs, or PG_SSL_CA_FILE when set
+    const ssl = { rejectUnauthorized: true };
+    if (process.env.PG_SSL_CA_FILE) ssl.ca = fs.readFileSync(process.env.PG_SSL_CA_FILE);
+    return ssl;
+  }
+  return { rejectUnauthorized: false }; // "true": encrypted, certificate not verified (use "verify" against untrusted networks)
 }
 
 /** Return the pool for a token: its own connection config, or the server's default connection when null.
@@ -166,7 +172,11 @@ const PRIVILEGE_HINT = "\nHint: the performance tools need the pg_monitor role (
 const USER_SCHEMA = "n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname !~ '^pg_toast' AND ($1::text IS NULL OR n.nspname = $1::text)";
 
 // ── MCP server factory ────────────────────────────────────────────────────────
-export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
+/** True when PG_READ_ONLY disables the `execute` tool for everyone (also in stdio mode). */
+const envReadOnly = () => ["true", "1", "yes"].includes((process.env.PG_READ_ONLY || "").toLowerCase());
+
+/** `state.readOnly` is re-evaluated per request: the admin may switch a token to read-only mid-session. */
+export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-", state = { readOnly: envReadOnly() }) {
   const server = new Server(
     { name: mcpServerName, version },
     { capabilities: { tools: {}, prompts: {} } }
@@ -304,7 +314,7 @@ export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
         description: "Cache hit ratio, connections, temp files, deadlocks and key tuning settings of the current database",
         inputSchema: { type: "object", properties: {} },
       },
-    ],
+    ].filter((t) => !(state.readOnly && t.name === "execute")),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -314,6 +324,11 @@ export function createMcpServer(dbPool, tokenName = "unknown", clientIp = "-") {
       const handler = Object.hasOwn(TOOL_HANDLERS, name) ? TOOL_HANDLERS[name] : null;
       // noinspection ExceptionCaughtLocallyJS
       if (!handler) throw new Error(`Unknown tool: ${name}`);
+      if (state.readOnly && name === "execute") {
+        log("warn", "AUTH", `result="denied" token="${tokenName}" action="execute" ip="${clientIp}" reason="read-only"`);
+        // noinspection ExceptionCaughtLocallyJS
+        throw new Error("The execute tool is disabled for this token (read-only)");
+      }
       return await handler(dbPool, args);
     } catch (err) {
       const msg = err?.message || err?.toString() || JSON.stringify(err);
@@ -792,6 +807,12 @@ function formatToolParams(args) {
 export const sessions = new Map(); // sessionId → StreamableHTTPServerTransport
 /** Client-supplied connection parameters per session (re-checked on every request). */
 const sessionClientConnections = new Map();
+/** Session id → owner (token name or OAuth subject): a session can only be resumed by whoever opened it. */
+const sessionOwners = new Map();
+/** Session id → { readOnly }, shared with the session's MCP server. */
+const sessionStates = new Map();
+
+const ownerOf = (auth) => auth.identity?.sub ? `oauth:${auth.identity.sub}` : `${auth.name}`;
 
 /** Logs (AUTH, like other rejected requests) and answers a rejected client-supplied connection
  *  with a JSON-RPC error, which MCP clients show to the user. */
@@ -815,9 +836,19 @@ export async function handleRequest(req, res) {
   }
 }
 
+/** The admin SPA is a single file with inline script/style; everything else is locked down (no framing, no third parties). */
+const ADMIN_SECURITY_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; "
+    + "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "Cache-Control": "no-store",
+};
+
 function serveAdminHtml(req, res) {
   if (cachedAdminHtml) {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...ADMIN_SECURITY_HEADERS });
     res.end(cachedAdminHtml);
   } else {
     res.writeHead(404);
@@ -857,6 +888,14 @@ async function handleMcp(req, res) {
 }
 
 async function resumeSession(req, res, auth, clientIp, sessionId) {
+  if (sessionOwners.get(sessionId) !== ownerOf(auth)) {
+    log("warn", "AUTH", `result="denied" token="${auth.name}" action="${req.method} /mcp" ip="${clientIp}" reason="session belongs to another principal"`);
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session belongs to another user" }, id: null }));
+    return;
+  }
+  const state = sessionStates.get(sessionId);
+  if (state) state.readOnly = !!auth.readOnly || envReadOnly();
   // The admin may have revoked client_connection meanwhile
   const client = sessionClientConnections.get(sessionId);
   if (client) {
@@ -887,7 +926,9 @@ async function startSession(req, res, auth, clientIp) {
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (id) => trackSession(transport, id, { auth, clientIp, client, connection }),
   });
-  const server = createMcpServer(dbPool, auth.name, clientIp);
+  const state = { readOnly: !!auth.readOnly || envReadOnly() };
+  const server = createMcpServer(dbPool, auth.name, clientIp, state);
+  transport.pgState = state;
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
@@ -895,6 +936,8 @@ async function startSession(req, res, auth, clientIp) {
 /** Registers a new session, logs its start and — on close — its stop, releasing a client pool. */
 function trackSession(transport, id, { auth, clientIp, client, connection }) {
   sessions.set(id, transport);
+  sessionOwners.set(id, ownerOf(auth));
+  if (transport.pgState) sessionStates.set(id, transport.pgState);
   let connInfo = "";
   if (client) {
     sessionClientConnections.set(id, client);
@@ -913,6 +956,8 @@ function trackSession(transport, id, { auth, clientIp, client, connection }) {
   const prevOnClose = transport.onclose;
   transport.onclose = () => {
     sessions.delete(id);
+    sessionOwners.delete(id);
+    sessionStates.delete(id);
     if (sessionClientConnections.delete(id)) releaseClientPool(connection, auth.name);
     const duration = Math.round((Date.now() - startedAt) / 1000);
     log("info", "SESSION", `token="${auth.name}" action="stop" session="${id}" ip="${clientIp}" duration=${duration}s`);
@@ -971,6 +1016,11 @@ if (isMain) {
     const oauth = getOAuthConfig();
     for (const p of oauthConfigProblems(oauth)) console.error(`⚠️  OAuth: ${p}`);
     const authInfo = describeAuth(oauth);
+    if (!getAuthToken() && !oauth && !["true", "1", "yes"].includes((process.env.ALLOW_ANONYMOUS || "").toLowerCase())) {
+      console.error("❌ TRANSPORT=http without AUTH_TOKEN or OAuth would expose the database (including the admin API) to anyone.\n"
+        + "   Set AUTH_TOKEN (or OAUTH_ISSUER), or ALLOW_ANONYMOUS=true to run without authentication on purpose.");
+      process.exit(1);
+    }
 
     if (TLS_ENABLED) {
       // ── HTTPS ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
  *   GET /auth/status                          – public: is OAuth on, who is logged in (Admin UI)
  *   GET /auth/login                           – redirect to the identity provider (authorization code + PKCE)
  *   GET /auth/callback                        – code exchange, creates the session cookie, redirects to /admin
- *   POST /auth/logout                         – ends the session (also GET)
+ *   POST /auth/logout                         – ends the session
  *   GET /.well-known/oauth-protected-resource – RFC 9728 metadata for MCP clients
  */
 import { getOAuthConfig, browserLoginEnabled, startLogin, finishLogin, createSession, destroySession,

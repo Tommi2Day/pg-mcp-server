@@ -35,7 +35,51 @@ export function getClientIp(req) {
     || req.socket?.remoteAddress || "-";
 }
 
+// ── Failed-login throttle (per client IP) ─────────────────────────────────────
+const authFailures = new Map(); // ip -> { count, since }
+const THROTTLE_MAX_IPS = 10_000;
+
+/** AUTH_MAX_FAILURES (default 20) failed attempts per AUTH_FAILURE_WINDOW seconds (default 60) per IP; 0 disables. */
+function throttleConfig() {
+  const max = parseInt(process.env.AUTH_MAX_FAILURES ?? "20", 10);
+  const window = parseInt(process.env.AUTH_FAILURE_WINDOW || "60", 10) * 1000;
+  return { max: Number.isNaN(max) ? 20 : max, window: window > 0 ? window : 60_000 };
+}
+
+export function clearAuthThrottle() { authFailures.clear(); }
+
+function recordAuthFailure(req) {
+  const { max, window } = throttleConfig();
+  if (max <= 0) return;
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const e = authFailures.get(ip);
+  if (e && now - e.since < window) { e.count++; return; }
+  if (authFailures.size >= THROTTLE_MAX_IPS) {
+    for (const [k, v] of authFailures) if (now - v.since >= window) authFailures.delete(k);
+    if (authFailures.size >= THROTTLE_MAX_IPS) authFailures.delete(authFailures.keys().next().value);
+  }
+  authFailures.set(ip, { count: 1, since: now });
+}
+
+/** True (and 429 sent) when the client IP exceeded the failed-attempt limit. */
+function isThrottled(req, res) {
+  const { max, window } = throttleConfig();
+  if (max <= 0) return false;
+  const ip = getClientIp(req);
+  const e = authFailures.get(ip);
+  if (!e) return false;
+  const left = Math.ceil((e.since + window - Date.now()) / 1000);
+  if (left <= 0) { authFailures.delete(ip); return false; }
+  if (e.count < max) return false;
+  log("warn", "AUTH", `result="denied" action="${req.method} ${new URL(req.url || "/", "http://x").pathname}" ip="${ip}" reason="too many failed attempts"`);
+  res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(left) });
+  res.end(JSON.stringify({ error: "Too many failed authentication attempts" }));
+  return true;
+}
+
 function logAuthFailure(req, reason, tokenName) {
+  if (!/missing token$/.test(reason)) recordAuthFailure(req);
   const pathname = new URL(req.url || "/", "http://x").pathname;
   const tokenPart = tokenName ? ` token="${tokenName}"` : "";
   log("warn", "AUTH", `result="denied"${tokenPart} action="${req.method} ${pathname}" ip="${getClientIp(req)}" reason="${reason}"`);
@@ -101,16 +145,22 @@ let tokenStoreCache = null;
 export function clearTokenStoreCache() { tokenStoreCache = null; }
 
 // ── Store encryption (AES-256-GCM, keyed by STORE_ENCRYPTION_KEY env var) ─────
-const ENC_PREFIX = "enc:v1:";
+const ENC_PREFIX = "enc:v2:";        // key derived with scrypt
+const ENC_PREFIX_V1 = "enc:v1:";     // legacy: key = SHA-256(STORE_ENCRYPTION_KEY); still readable, re-encrypted at startup
+const isEncrypted = (v) => typeof v === "string" && (v.startsWith(ENC_PREFIX) || v.startsWith(ENC_PREFIX_V1));
+const KDF_SALT = "pg-mcp-server/store-encryption/v2";
+let kdfCache = null; // { raw, key }
 
-function getEncryptionKey() {
+function getEncryptionKey(legacy = false) {
   const raw = process.env.STORE_ENCRYPTION_KEY;
   if (!raw) return null;
-  return crypto.createHash("sha256").update(raw).digest(); // 32-byte AES-256 key
+  if (legacy) return crypto.createHash("sha256").update(raw).digest();
+  if (kdfCache?.raw !== raw) kdfCache = { raw, key: crypto.scryptSync(raw, KDF_SALT, 32) }; // 32-byte AES-256 key
+  return kdfCache.key;
 }
 
 function encryptValue(plaintext) {
-  if (plaintext.startsWith(ENC_PREFIX)) return plaintext;
+  if (isEncrypted(plaintext)) return plaintext;
   const key = getEncryptionKey();
   if (!key) return plaintext;
   const iv  = crypto.randomBytes(12);
@@ -121,13 +171,13 @@ function encryptValue(plaintext) {
 }
 
 function decryptValue(value) {
-  if (typeof value !== "string" || !value.startsWith(ENC_PREFIX)) return value;
-  const key = getEncryptionKey();
+  if (!isEncrypted(value)) return value;
+  const key = getEncryptionKey(value.startsWith(ENC_PREFIX_V1));
   if (!key) {
     log("warn", "STORE", "Encrypted password found but STORE_ENCRYPTION_KEY is not set — connection will fail.");
     return value;
   }
-  const parts = value.slice(ENC_PREFIX.length).split(":");
+  const parts = value.slice(ENC_PREFIX.length).split(":"); // both prefixes have the same length
   if (parts.length !== 3) throw new Error("Malformed encrypted value in token store — check STORE_ENCRYPTION_KEY");
   try {
     const [ivHex, tagHex, ctHex] = parts;
@@ -165,7 +215,9 @@ export function loadTokenStore() {
 export function saveTokenStore(data) {
   const file  = getTokensFile();
   const toWrite = getEncryptionKey() ? mapStoredPasswords(data, encryptValue) : data;
-  fs.writeFileSync(file, JSON.stringify(toWrite, null, 2), "utf8");
+  // 0600: the file holds token hashes and (maybe) connection passwords; mode only applies to new files, so chmod too
+  fs.writeFileSync(file, JSON.stringify(toWrite, null, 2), { encoding: "utf8", mode: 0o600 });
+  try { fs.chmodSync(file, 0o600); } catch { /* best effort (e.g. Windows, read-only mounts) */ }
   tokenStoreCache = data;
 }
 
@@ -183,11 +235,11 @@ export function migrateTokenStore() {
   const entries = [...rawData.tokens, ...(rawData.assignments ?? [])];
   const plainCount = entries.filter(
     t => t.connection?.password && !t.connection.password.startsWith(ENC_PREFIX)
-  ).length;
+  ).length; // plaintext and legacy v1 values
   if (plainCount === 0) return;
   // Decrypt any values that are already encrypted, leaving plain ones as-is
   saveTokenStore(mapStoredPasswords(rawData, decryptValue)); // re-encrypts every password
-  log("info", "STORE", `Encrypted ${plainCount} plaintext password(s) in token store.`);
+  log("info", "STORE", `Encrypted ${plainCount} plaintext/legacy password(s) in token store.`);
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -218,7 +270,7 @@ export function readBody(req) {
     let size = 0;
     req.on("data", chunk => {
       size += chunk.length;
-      if (size > 1_048_576) { reject(new Error("Request body too large")); return; }
+      if (size > 1_048_576) { reject(new Error("Request body too large")); req.destroy?.(); return; }
       body += chunk;
     });
     req.on("end", () => resolve(body));
@@ -239,6 +291,7 @@ function timingSafeEqual(a, b) {
 export function checkAdminAuth(req, res) {
   const authToken = getAuthToken();
   if (!authToken) return true;
+  if (isThrottled(req, res)) return false;
   const token = extractBearer(req);
   if (!token) { logAuthFailure(req, "missing token"); send401(res); return false; }
   if (!timingSafeEqual(token, authToken)) { logAuthFailure(req, "invalid admin token"); send401(res); return false; }
@@ -278,6 +331,7 @@ async function checkOAuthBearer(req, res, token, oauth) {
   return {
     ok: true, name: identity.display, connection: access.connection,
     clientConnection: parseClientConnectionMode(access.clientConnection) ?? "none",
+    readOnly: envReadOnly() || access.readOnly === true,
     identity: { sub: identity.sub, email: identity.email, name: identity.name, assignment: access.assignment, admin: access.admin },
   };
 }
@@ -293,7 +347,13 @@ function checkFileToken(req, res, token) {
   return {
     ok: true, name: entry.name, connection: entry.connection || null,
     clientConnection: parseClientConnectionMode(entry.client_connection) ?? "none",
+    readOnly: envReadOnly() || entry.read_only === true,
   };
+}
+
+/** PG_READ_ONLY=true: the `execute` tool is disabled for every client (token/assignment `read_only` does it per entry). */
+export function envReadOnly() {
+  return ["true", "1", "yes"].includes((process.env.PG_READ_ONLY || "").toLowerCase());
 }
 
 /** MCP auth — accepts AUTH_TOKEN env var, any active file token or (OAUTH_ISSUER set) an OAuth access token.
@@ -302,11 +362,12 @@ function checkFileToken(req, res, token) {
 export async function checkAuth(req, res) {
   const authToken = getAuthToken();
   const oauth = getOAuthConfig();
-  if (!authToken && !oauth) return { ok: true, name: "anonymous", connection: null, clientConnection: envClientConnectionMode() };
+  if (!authToken && !oauth) return { ok: true, name: "anonymous", connection: null, clientConnection: envClientConnectionMode(), readOnly: envReadOnly() };
+  if (isThrottled(req, res)) return { ok: false };
   const token = extractBearer(req);
   if (!token) { logAuthFailure(req, "missing token"); send401(res); return { ok: false }; }
   if (authToken && timingSafeEqual(token, authToken)) {
-    return { ok: true, name: "admin", connection: null, clientConnection: envClientConnectionMode() };
+    return { ok: true, name: "admin", connection: null, clientConnection: envClientConnectionMode(), readOnly: envReadOnly() };
   }
   if (oauth && looksLikeJwt(token)) return checkOAuthBearer(req, res, token, oauth);
   return checkFileToken(req, res, token);
@@ -334,6 +395,7 @@ export async function authenticateAdmin(req, res) {
     if (!checkAdminAuth(req, res)) return { ok: false };
     return getAuthToken() ? { ok: true, name: "admin", method: "token" } : { ok: true, name: "anonymous", method: "none" };
   }
+  if (isThrottled(req, res)) return { ok: false };
   const token = extractBearer(req);
   const authToken = getAuthToken();
   if (token && authToken && timingSafeEqual(token, authToken)) return { ok: true, name: "admin", method: "token" };
@@ -413,7 +475,7 @@ function validateClientValues(conn) {
   if (conn.port !== undefined && !/^\d+$/.test(conn.port)) throw new ClientConnectionError('"port" must be a number', 400);
   if (conn.ssl !== undefined) {
     const ssl = conn.ssl.toLowerCase();
-    if (!["true", "false"].includes(ssl)) throw new ClientConnectionError('"ssl" must be true or false', 400);
+    if (!["true", "false", "verify"].includes(ssl)) throw new ClientConnectionError('"ssl" must be true, false or verify', 400);
     conn.ssl = ssl;
   }
   return conn;
@@ -451,6 +513,7 @@ export function applyClientConnection(token, client, mode) {
 }
 
 // ── Admin: token management (/admin/tokens[/:id]) ────────────────────────────
+const READ_ONLY_ERROR = '"read_only" must be true or false';
 const CLIENT_MODE_ERROR = '"client_connection" must be none, credentials or full';
 
 function sendJson(res, status, body) {
@@ -490,7 +553,8 @@ function mergeSecrets(updated, existing) {
 const withoutHash = ({ token_hash: _h, ...rest }) => maskConnection(rest);
 
 /** Validation error for POST /admin/tokens, or null. */
-function createTokenError({ name, connection, client_connection }) {
+function createTokenError({ name, connection, client_connection, read_only }) {
+  if (read_only !== undefined && typeof read_only !== "boolean") return READ_ONLY_ERROR;
   if (!name || typeof name !== "string" || !name.trim()) return '"name" is required';
   if (connection !== undefined && !isConnectionValue(connection)) return '"connection" must be an object or null';
   if (!parseClientConnectionMode(client_connection)) return CLIENT_MODE_ERROR;
@@ -500,9 +564,10 @@ function createTokenError({ name, connection, client_connection }) {
 /** Validation error for PATCH /admin/tokens/:id, or null. */
 function updateTokenError(updates) {
   if (updates.name === undefined && updates.active === undefined && updates.connection === undefined
-      && updates.client_connection === undefined) {
-    return "No valid fields (name, active, connection, client_connection)";
+      && updates.client_connection === undefined && updates.read_only === undefined) {
+    return "No valid fields (name, active, connection, client_connection, read_only)";
   }
+  if (updates.read_only !== undefined && typeof updates.read_only !== "boolean") return READ_ONLY_ERROR;
   if (updates.name !== undefined && (typeof updates.name !== "string" || !updates.name.trim())) return '"name" must be a non-empty string';
   if (updates.connection !== undefined && !isConnectionValue(updates.connection)) return '"connection" must be an object or null';
   if (!parseClientConnectionMode(updates.client_connection)) return CLIENT_MODE_ERROR;
@@ -531,6 +596,7 @@ async function createToken(req, res) {
     active:       true,
     connection:   body.connection || null,
     ...(clientMode !== "none" && { client_connection: clientMode }),
+    ...(body.read_only === true && { read_only: true }),
   };
   store.tokens.push(entry);
   saveTokenStore(store);
@@ -552,6 +618,10 @@ async function updateToken(req, res, id) {
     const clientMode = parseClientConnectionMode(updates.client_connection);
     if (clientMode === "none") delete entry.client_connection;
     else entry.client_connection = clientMode;
+  }
+  if (updates.read_only !== undefined) {
+    if (updates.read_only) entry.read_only = true;
+    else delete entry.read_only;
   }
   saveTokenStore(store);
   sendJson(res, 200, withoutHash(entry));

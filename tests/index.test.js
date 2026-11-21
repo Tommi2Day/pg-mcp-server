@@ -223,6 +223,26 @@ describe("handleRequest", () => {
     delete mockTransport.onclose;
   });
 
+  it("/mcp refuses to resume a session opened by another principal, and applies read-only changes to the open session", async () => {
+    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "alice", connection: null, readOnly: false });
+    await handleRequest(makeReq("POST", "/mcp"), makeRes());
+    vi.mocked(StreamableHTTPServerTransport).mock.calls.at(-1)[0].onsessioninitialized("owned-1");
+    mockTransport.handleRequest.mockClear();
+
+    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "mallory", connection: null });
+    const res = makeRes();
+    await handleRequest(makeReq("POST", "/mcp", { headers: { "mcp-session-id": "owned-1" } }), res);
+    expect(res.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+    expect(mockTransport.handleRequest).not.toHaveBeenCalled();
+
+    vi.mocked(checkAuth).mockResolvedValueOnce({ ok: true, name: "alice", connection: null, readOnly: true });
+    await handleRequest(makeReq("POST", "/mcp", { headers: { "mcp-session-id": "owned-1" } }), makeRes());
+    expect(mockTransport.handleRequest).toHaveBeenCalledTimes(1);
+    const state = vi.mocked(StreamableHTTPServerTransport).mock.results.at(-1).value.pgState;
+    expect(state?.readOnly ?? mockTransport.pgState?.readOnly).toBe(true);
+    mockTransport.onclose?.();
+  });
+
   describe("client-supplied connection (X-Pg-* headers)", () => {
     const clientHeaders = { "x-pg-user": "jdoe", "x-pg-password": "secret" };
     /** Simulates the SDK: initialize → session id. */
@@ -339,6 +359,21 @@ describe("getPool", () => {
   it("applicationName replaces non-ASCII characters and keeps 63 bytes", () => {
     expect(applicationName("Jürgen")).toBe("pg-mcp-server:J?rgen");
     expect(applicationName("x".repeat(100))).toHaveLength(63);
+  });
+});
+
+// ── read-only tokens: the execute tool ────────────────────────────────────────
+describe("createMcpServer – read-only", () => {
+  it("hides execute and refuses to run it when the session is read-only", async () => {
+    const pool = { connect: vi.fn(), query: vi.fn() };
+    createMcpServer(pool, "ro", "-", { readOnly: true });
+    const names = (await capturedHandlers["LIST_TOOLS"]({})).tools.map(t => t.name);
+    expect(names).not.toContain("execute");
+    expect(names).toHaveLength(11);
+    const r = await capturedHandlers["CALL_TOOL"]({ params: { name: "execute", arguments: { sql: "DROP TABLE t" } } });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toMatch(/read-only/);
+    expect(pool.connect).not.toHaveBeenCalled();
   });
 });
 
