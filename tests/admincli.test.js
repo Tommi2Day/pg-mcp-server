@@ -17,12 +17,12 @@ let base = "";
 
 const ASSIGNMENTS = [
   { id: "env-1", group: "grp-dba", source: "env", connection: null },
-  { id: 1, group: "grp-users", source: "store", connection: { host: "db", database: "reports", user: "ro", password_set: true } },
+  { id: 1, group: "grp-users", source: "store", read_only: true, connection: { host: "db", database: "reports", user: "ro", password_set: true } },
   { id: 2, user: "alice@example.com", admin: true, client_connection: "credentials", source: "store", connection: null },
 ];
 const TOKENS = [
   { id: 1, name: "ci", active: true, created_at: "2026-11-01T10:00:00.000Z", last_used_at: null, connection: null },
-  { id: 2, name: "analytics", active: false, created_at: "2026-11-02T10:00:00.000Z", last_used_at: "2026-11-03T10:00:00.000Z",
+  { id: 2, name: "analytics", active: false, read_only: true, created_at: "2026-11-02T10:00:00.000Z", last_used_at: "2026-11-03T10:00:00.000Z",
     connection: { host: "db.example.com", port: 5432, database: "mydb", user: "u", ssl: "false" } },
 ];
 
@@ -235,6 +235,39 @@ describe.skipIf(!haveTools)("admincli.sh tokens", () => {
     expect((await cli(["rename-token", "2"])).code).not.toBe(0);
   });
 
+  it("read-only: add-token / add-assignment flags, set-read-only commands and the list/show output", async () => {
+    await cli(["add-token", "ro-client", "--read-only"]);
+    expect(seen[0]).toMatchObject({ method: "POST", url: "/admin/tokens" });
+    expect(lastBody()).toEqual({ name: "ro-client", read_only: true });
+    await cli(["add-token", "rw-client"]);
+    expect(lastBody()).toEqual({ name: "rw-client" }); // not sent unless asked for
+
+    await cli(["add-assignment", "--group", "grp-ro", "--read-only"]);
+    expect(seen[0]).toMatchObject({ method: "POST", url: "/admin/assignments" });
+    expect(lastBody()).toEqual({ group: "grp-ro", read_only: true });
+
+    const t = await cli(["set-read-only", "2", "true"]);
+    expect(t.code).toBe(0);
+    expect(seen[0]).toMatchObject({ method: "PATCH", url: "/admin/tokens/2" });
+    expect(lastBody()).toEqual({ read_only: true });
+    await cli(["set-read-only", "2", "false"]);
+    expect(lastBody()).toEqual({ read_only: false });
+    await cli(["set-assignment-read-only", "1", "true"]);
+    expect(seen[0]).toMatchObject({ method: "PATCH", url: "/admin/assignments/1" });
+    expect(lastBody()).toEqual({ read_only: true });
+
+    for (const args of [["set-read-only"], ["set-read-only", "2"], ["set-read-only", "2", "maybe"],
+      ["set-assignment-read-only", "1", "maybe"], ["set-assignment-read-only"]]) {
+      expect((await cli(args)).code, args.join(" ")).not.toBe(0);
+    }
+    expect(seen).toHaveLength(0);
+
+    const show = await cli(["show-token", "2"]);
+    expect(show.out).toMatch(/Read-only\s+: true/);
+    expect((await cli(["list-tokens"])).out).toMatch(/analytics\s+false\s+yes\s+yes/);
+    expect((await cli(["list-assignments"])).out).toMatch(/grp-users\s+user\s+yes/);
+  });
+
   it("reports API errors and unknown commands", async () => {
     const r = await cli(["delete-token", "9"]);
     expect(r.code).not.toBe(0);
@@ -247,6 +280,6 @@ describe.skipIf(!haveTools)("admincli.sh tokens", () => {
   it("help lists the token and assignment commands", async () => {
     const r = await cli(["help"], {});
     expect(r.code).toBe(0);
-    for (const c of ["list-tokens", "add-token", "set-client-conn", "list-assignments", "add-assignment", "whoami", "set-assignment-admin"]) expect(r.out).toContain(c);
+    for (const c of ["list-tokens", "add-token", "set-client-conn", "list-assignments", "add-assignment", "whoami", "set-assignment-admin", "set-read-only", "set-assignment-read-only"]) expect(r.out).toContain(c);
   });
 });

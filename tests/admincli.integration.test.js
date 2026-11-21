@@ -179,6 +179,32 @@ describe.skipIf(!enabled)("admincli.sh against a real server (Keycloak + Postgre
     await expect(open(token, { "X-Pg-User": OWN.user, "X-Pg-Password": OWN.password })).rejects.toThrow();
   });
 
+  it("--read-only / set-read-only: the execute tool disappears and returns, in the open session", async () => {
+    const created = await cli(["add-token", "cli-ro", "--host", HOST, "--port", String(PORT), "--database", DB,
+      "--user", SUPER.user, "--password", SUPER.password, "--read-only"]);
+    expect(created.out).toContain("Read-only");
+    const id = /ID: (\d+)/.exec(created.out)[1];
+    const token = /TOKEN[^\n]*\n\s*\n\s*(\S+)/.exec(created.out)[1];
+    const client = await open(token);
+    const tools = async () => (await client.listTools()).tools.map(t => t.name);
+    const exec = (q) => client.callTool({ name: "execute", arguments: { sql: q } });
+
+    expect(await tools()).not.toContain("execute");
+    const refused = await exec("CREATE TABLE cli_ro_probe(id int)");
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/read-only/);
+    expect((await cli(["show-token", id])).out).toMatch(/Read-only\s+: true/);
+    expect((await cli(["list-tokens"])).out).toMatch(/cli-ro\s+true\s+yes\s+yes/);
+
+    expect((await cli(["set-read-only", id, "false"])).code).toBe(0);
+    expect(await tools()).toContain("execute");
+    expect((await exec("CREATE TABLE cli_ro_probe(id int)")).isError).toBeFalsy();
+    await cli(["set-read-only", id, "true"]);
+    expect((await exec("DROP TABLE cli_ro_probe")).isError).toBe(true);
+    await cli(["set-read-only", id, "false"]);
+    expect((await exec("DROP TABLE cli_ro_probe")).isError).toBeFalsy();
+  });
+
   it("add-assignment: the Keycloak group decides the database, the e-mail shows up in PostgreSQL", async () => {
     const r = await cli(["add-assignment", "--group", "grp-dba", "--host", HOST, "--port", String(PORT), "--database", DB,
       "--user", SUPER.user, "--password", SUPER.password, "--ssl", "false", "--note", "DBAs"]);
