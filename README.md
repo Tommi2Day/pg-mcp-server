@@ -122,10 +122,11 @@ Compared to the archived reference server [`@modelcontextprotocol/server-postgre
 
 ## Docker Hub
 
-The image is available on Docker Hub:
+The image is available on Docker Hub and on the GitHub Container Registry (same tags):
 
 ```bash
 docker pull tommi2day/pg-mcp-server:latest
+docker pull ghcr.io/tommi2day/pg-mcp-server:latest
 ```
 
 | Tag | Description |

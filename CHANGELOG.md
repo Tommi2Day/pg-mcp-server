@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The Docker image is also published to GitHub Container Registry (`ghcr.io/tommi2day/pg-mcp-server`, same tags as on Docker Hub); the release job verifies that the GHCR package is publicly pullable and writes a job summary
+
 ## [1.2.0] - 2026-11-21
 
 Security hardening release. **Read "Changed" before upgrading:** an HTTP server without
