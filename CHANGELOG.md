@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `scripts/lint.sh`, `scripts/test.sh` and `scripts/coverage.sh` mounted `scripts/` instead of the repository root into the
   Docker container, so `npm ci` found no `package.json` and the scripts failed.
+  `npm ci` inside the container now runs on a named volume for `node_modules`, so the host `node_modules` is no longer
+  overwritten with root-owned files; `coverage.sh` hands the report back to the host user.
 
 ## [1.2.0] - 2026-11-21
 

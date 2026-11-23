@@ -17,8 +17,10 @@ DIR="$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })"
 docker run --rm \
   -v "${DIR}:/app" \
   -v "pg-mcp-npm-cache:/root/.npm" \
+  -v "pg-mcp-node-modules:/app/node_modules" \
+  -e "HOST_UID=$(id -u)" -e "HOST_GID=$(id -g)" \
   node:22-alpine \
-  sh -c 'cd /app && npm ci --silent && npx vitest run --coverage'
+  sh -c 'cd /app && npm ci --silent && npx vitest run --coverage; rc=$?; chown -R "$HOST_UID:$HOST_GID" /app/coverage 2>/dev/null; exit $rc'
 
 if [ "$OPEN" = true ]; then
   REPORT="${DIR}/coverage/index.html"
