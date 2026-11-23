@@ -248,7 +248,15 @@ jobs:
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # re-release: the release already exists, refresh title and notes
+            # (gh release edit has no --generate-notes, so only the CHANGELOG section is used)
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              --generate-notes
+          fi
