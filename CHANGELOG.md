@@ -6,13 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- `scripts/lint.sh`, `scripts/test.sh` and `scripts/coverage.sh` mounted `scripts/` instead of the repository root into the
-  Docker container, so `npm ci` found no `package.json` and the scripts failed.
-  `npm ci` inside the container now runs on a named volume for `node_modules`, so the host `node_modules` is no longer
-  overwritten with root-owned files; `coverage.sh` hands the report back to the host user.
-
-## [1.2.0] - 2026-11-21
+## [1.2.0] - 2026-11-23
 
 Security hardening release. **Read "Changed" before upgrading:** an HTTP server without
 `AUTH_TOKEN`/OAuth no longer starts.
@@ -47,6 +41,12 @@ Security hardening release. **Read "Changed" before upgrading:** an HTTP server 
 - The admin page is served with `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store`
 - License is Apache-2.0 (was MIT): the `LICENSE` file changed in 1.2.0, now `package.json`, `package-lock.json`, `openapi.json` (`info.license`) and the README say so too. Releases up to 1.1.0 were published under MIT
+
+### Fixed
+- `scripts/lint.sh`, `scripts/test.sh` and `scripts/coverage.sh` mounted `scripts/` instead of the repository root into the
+  Docker container, so `npm ci` found no `package.json` and the scripts failed.
+  `npm ci` inside the container now runs on a named volume for `node_modules`, so the host `node_modules` is no longer
+  overwritten with root-owned files; `coverage.sh` hands the report back to the host user.
 
 ### Security
 - MCP sessions are bound to the principal that opened them: resuming an `mcp-session-id` with another token or user is
