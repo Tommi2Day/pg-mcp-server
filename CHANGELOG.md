@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/lint.sh`, `scripts/test.sh` and `scripts/coverage.sh` mounted `scripts/` instead of the repository root into the
+  Docker container, so `npm ci` found no `package.json` and the scripts failed.
+
 ## [1.2.0] - 2026-11-21
 
 Security hardening release. **Read "Changed" before upgrading:** an HTTP server without

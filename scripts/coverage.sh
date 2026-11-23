@@ -12,7 +12,7 @@ if [ "$1" = "--open" ]; then
 fi
 
 # pwd -W returns Windows paths (C:/...) in Git Bash – required for Docker volume mounts
-DIR="$(cd "$(dirname "$0")" && { pwd -W 2>/dev/null || pwd; })"
+DIR="$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })"
 
 docker run --rm \
   -v "${DIR}:/app" \
