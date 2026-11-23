@@ -238,22 +238,32 @@ export function envAssignments() {
   }));
 }
 
-/** Validation error text for an assignment body (create), or null. */
-export function assignmentError(a, { partial = false } = {}) {
-  if (!a || typeof a !== "object" || Array.isArray(a)) return "assignment must be an object";
-  const hasGroup = a.group !== undefined && a.group !== null && a.group !== "";
-  const hasUser = a.user !== undefined && a.user !== null && a.user !== "";
+const isSet = (v) => v !== undefined && v !== null && v !== "";
+const isBlank = (v) => typeof v !== "string" || !v.trim();
+
+/** Error for the "group" / "user" subject of an assignment, or null. */
+function subjectError(a, partial) {
+  const hasGroup = isSet(a.group);
+  const hasUser = isSet(a.user);
   if (!partial && hasGroup === hasUser) return 'exactly one of "group" or "user" is required';
   if (hasGroup && hasUser) return 'only one of "group" or "user" may be set';
-  if ((hasGroup && (typeof a.group !== "string" || !a.group.trim())) || (hasUser && (typeof a.user !== "string" || !a.user.trim()))) {
-    return '"group" and "user" must be non-empty strings';
-  }
-  if (a.connection !== undefined && a.connection !== null && (typeof a.connection !== "object" || Array.isArray(a.connection))) {
-    return '"connection" must be an object or null';
-  }
+  if ((hasGroup && isBlank(a.group)) || (hasUser && isBlank(a.user))) return '"group" and "user" must be non-empty strings';
+  return null;
+}
+
+/** Error for the optional connection / admin / read_only fields of an assignment, or null. */
+function optionsError(a) {
+  const c = a.connection;
+  if (c !== undefined && c !== null && (typeof c !== "object" || Array.isArray(c))) return '"connection" must be an object or null';
   if (a.admin !== undefined && typeof a.admin !== "boolean") return '"admin" must be true or false';
   if (a.read_only !== undefined && typeof a.read_only !== "boolean") return '"read_only" must be true or false';
   return null;
+}
+
+/** Validation error text for an assignment body (create), or null. */
+export function assignmentError(a, { partial = false } = {}) {
+  if (!a || typeof a !== "object" || Array.isArray(a)) return "assignment must be an object";
+  return subjectError(a, partial) ?? optionsError(a);
 }
 
 const lc = (s) => String(s).trim().toLowerCase();
