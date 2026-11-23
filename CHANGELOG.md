@@ -6,10 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Internal: `assignmentError()` split into helpers (Sonar S3776, cognitive complexity 16 → below 15); behaviour and error
-  messages unchanged
-
 ## [1.2.0] - 2026-11-23
 
 Security hardening release. **Read "Changed" before upgrading:** an HTTP server without
@@ -45,6 +41,8 @@ Security hardening release. **Read "Changed" before upgrading:** an HTTP server 
 - The admin page is served with `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store`
 - License is Apache-2.0 (was MIT): the `LICENSE` file changed in 1.2.0, now `package.json`, `package-lock.json`, `openapi.json` (`info.license`) and the README say so too. Releases up to 1.1.0 were published under MIT
+- Internal: `assignmentError()` split into helpers (Sonar S3776, cognitive complexity 16 → below 15); behaviour and error
+  messages unchanged
 
 ### Fixed
 - `scripts/lint.sh`, `scripts/test.sh` and `scripts/coverage.sh` mounted `scripts/` instead of the repository root into the
